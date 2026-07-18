@@ -154,7 +154,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
-# Helper to inject HTML5 audio cards with integrated live hardware controls
+# Helper to inject HTML5 audio cards with automatic 2-second pre-roll calculations
 def render_audiometer_channel(label, audio_buffer, element_key):
     import base64
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
@@ -172,12 +172,11 @@ def render_audiometer_channel(label, audio_buffer, element_key):
         </div>
         
         <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button onclick="window['loop_{element_key}'] = document.getElementById('audio_{element_key}').currentTime; this.innerHTML='⚙️ MARKED ' + window['loop_{element_key}'].toFixed(1) + 's'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
-            <button onclick="if(window['loop_{element_key}'] !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window['loop_{element_key}']; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK</button>
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - 2.0); this.innerHTML='⚙️ SET -2s PREROLL'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window.parent.sharedVraLoopPoint; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK</button>
         </div>
     </div>
     """
-    # Expanded from height=135 to 165 to prevent component boundary clipping
     st.components.v1.html(html_code, height=165)
 
 # Main structural container mimicking the physical control board chassis
@@ -267,12 +266,12 @@ with st.container(border=True):
 
         st.markdown("""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
-                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ ROUTING CHANNELS READY // OPERATIONAL DECK LIVE</span>
+                <span style="color: #38bdf8; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">⚡ AUTOMATIC 2-SECOND BEHAVIORAL PREROLL ARMED ACROSS ALL NODES</span>
                 <div style="display: flex; align-items: flex-end; height: 14px; gap: 2px;">
-                    <div style="width: 3px; height: 4px; background: #22c55e; animation: pulse 0.4s infinite alternate;"></div>
-                    <div style="width: 3px; height: 12px; background: #22c55e; animation: pulse 0.2s infinite alternate 0.1s;"></div>
-                    <div style="width: 3px; height: 8px; background: #22c55e; animation: pulse 0.3s infinite alternate 0.2s;"></div>
-                    <div style="width: 3px; height: 14px; background: #22c55e; animation: pulse 0.1s infinite alternate 0.3s;"></div>
+                    <div style="width: 3px; height: 4px; background: #38bdf8; animation: pulse 0.4s infinite alternate;"></div>
+                    <div style="width: 3px; height: 12px; background: #38bdf8; animation: pulse 0.2s infinite alternate 0.1s;"></div>
+                    <div style="width: 3px; height: 8px; background: #38bdf8; animation: pulse 0.3s infinite alternate 0.2s;"></div>
+                    <div style="width: 3px; height: 14px; background: #38bdf8; animation: pulse 0.1s infinite alternate 0.3s;"></div>
                 </div>
             </div>
             <style>@keyframes pulse { 0% { height: 3px; } 100% { height: 14px; } }</style>
