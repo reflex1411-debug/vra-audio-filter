@@ -296,6 +296,7 @@ with st.container(border=True):
             st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #fbbf24; margin-top: 10px; margin-bottom: -5px;'>[ALIGNMENT LATENCY DIAL] JUMP BACK PRE-ROLL (SECONDS)</div>", unsafe_allow_html=True)
             preroll_offset = st.slider("", min_value=0.0, max_value=5.0, value=2.0, step=0.1, label_visibility="collapsed", key="latency_dial")
         
+        # Manifest
         stimuli_manifest = [
             {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
             {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
@@ -312,53 +313,27 @@ with st.container(border=True):
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
         if "LIVE LINE-IN" in ui_mode:
-            left_col, center_col, right_col = st.columns(3)
+            st.markdown("<br><div style='font-family: monospace; font-size: 0.9rem; color: #94a3b8; font-weight: bold;'>[ROW 1] BROADBAND & FILTERS</div>", unsafe_allow_html=True)
+            row1_col1, row1_col2, row1_col3 = st.columns(3)
             
-            with left_col:
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.markdown("<div style='font-family: monospace; font-size: 0.7rem; color: #e2e8f0; margin-bottom: 2px;'>🎚️ AUDIOMETER VU CALIBRATION (1kHz Tone)</div>", unsafe_allow_html=True)
-                    fs_cal = 44100
-                    t_cal = np.linspace(0, 5.0, int(fs_cal * 5.0), endpoint=False)
-                    tone_cal = np.sin(2 * np.pi * 1000 * t_cal) * (10 ** (-20.0 / 20.0) * np.sqrt(2))
-                    cal_buffer = io.BytesIO()
-                    sf.write(cal_buffer, tone_cal, fs_cal, format='WAV')
-                    cal_buffer.seek(0)
-                    st.audio(cal_buffer, format="audio/wav")
-                    
-                    st.markdown("<hr style='margin: 8px 0; border-color: #334155;' />", unsafe_allow_html=True)
-
-                    processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
+            broadband_items = [item for item in stimuli_manifest if "FRESH" not in item["label"] and "NBN" not in item["label"]]
+            for i, item in enumerate(broadband_items):
+                col = [row1_col1, row1_col2, row1_col3][i]
+                with col:
+                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full", preroll_offset)
-                    
-                    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                    processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
-                    if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp", preroll_offset)
-                    
-                    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                    processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
-                    if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp", preroll_offset)
+                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
-            with center_col:
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 1] STANDARD NBN BANK</div>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
-                    for idx, item in enumerate(nbn_items):
-                        if idx > 0:
-                            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                        freq_lbl = item["suffix"].split('_')[0]
-                        processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                        if not isinstance(active_target, str): active_target.seek(0)
-                        render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}", preroll_offset)
-
-            with right_col:
-                # We simply don't render the FRESH bank columns if we are in LIVE mode.
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK // HIDDEN</div>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.markdown("<div style='font-family: monospace; font-size: 0.75rem; color: #64748b;'>FRESH Stimuli Bank restricted to Bulk Export mode.</div>", unsafe_allow_html=True)
+            st.markdown("<br><div style='font-family: monospace; font-size: 0.9rem; color: #94a3b8; font-weight: bold;'>[ROW 2] NBN FILTERED BANDS</div>", unsafe_allow_html=True)
+            row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
+            
+            nbn_items = [item for item in stimuli_manifest if "NBN" in item["label"]]
+            for i, item in enumerate(nbn_items):
+                col = [row2_col1, row2_col2, row2_col3, row2_col4][i]
+                with col:
+                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                    if not isinstance(active_target, str): active_target.seek(0)
+                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
         # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
         else:
