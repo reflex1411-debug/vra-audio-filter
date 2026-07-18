@@ -234,15 +234,15 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         
         <!-- Hardware Signal VU Display Subsystem -->
-        <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 36px;">
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #22c55e; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #eab308; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #22c55e; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
-            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
+        <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #22c55e; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #22c55e; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #22c55e; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #22c55e; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #eab308; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #eab308; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #eab308; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #eab308; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #f59e0b; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #f59e0b; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #f59e0b; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #f59e0b; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div>
+            <div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div><div class="vu_bar_{element_key}" style="flex: 1; height: 20%; background-color: #ef4444; border-radius: 1px;"></div>
         </div>
 
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
@@ -270,14 +270,14 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 64;
+                        analyser.fftSize = 128; // Increased FFT size for higher visual accuracy
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
                             bars.forEach((bar, i) => {{
-                                const val = (dataArray[i] || 0) / 255.0;
+                                const val = (dataArray[Math.floor(i * 2)] || 0) / 255.0;
                                 bar.style.height = (20 + (val * 80)) + "%";
                                 bar.style.opacity = 0.2 + (val * 0.8);
                             }});
