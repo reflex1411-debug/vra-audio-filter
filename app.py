@@ -181,6 +181,17 @@ def render_audiometer_channel(label, audio_buffer, element_key):
 
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
+    
+    # 1. Functional System Mode Toggle Strip
+    st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #64748b; margin-bottom: 2px;'>[CONSOLE FUNCTION CONFIGURATION]</div>", unsafe_allow_html=True)
+    ui_mode = st.radio(
+        "",
+        ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
+
     top_col1, top_col2 = st.columns([2, 1])
     
     with top_col1:
@@ -255,7 +266,7 @@ with st.container(border=True):
 
         st.markdown("""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
-                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ MATRIX LOCKED // MEMORY GATES ACTIVE FOR INTERACTION</span>
+                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ ROUTING CHANNELS READY // OPERATIONAL DECK LIVE</span>
                 <div style="display: flex; align-items: flex-end; height: 14px; gap: 2px;">
                     <div style="width: 3px; height: 4px; background: #22c55e; animation: pulse 0.4s infinite alternate;"></div>
                     <div style="width: 3px; height: 12px; background: #22c55e; animation: pulse 0.2s infinite alternate 0.1s;"></div>
@@ -266,85 +277,96 @@ with st.container(border=True):
             <style>@keyframes pulse { 0% { height: 3px; } 100% { height: 14px; } }</style>
         """, unsafe_allow_html=True)
         
-        # 3-Column Instrument Cluster Grid
-        left_col, center_col, right_col = st.columns(3)
-        
-        # --- COLUMN 1: INTERFACE COMMAND & BROAD ATTENUATION ---
-        with left_col:
-            st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
-            with st.container(border=True):
-                # Hardcoded 1kHz Continuous Calibration Tone for Line-In VU Matching
-                st.markdown("<div style='font-family: monospace; font-size: 0.7rem; color: #e2e8f0; margin-bottom: 2px;'>🎚️ AUDIOMETER VU CALIBRATION (1kHz Tone)</div>", unsafe_allow_html=True)
-                fs_cal = 44100
-                t_cal = np.linspace(0, 5.0, int(fs_cal * 5.0), endpoint=False)
-                tone_cal = np.sin(2 * np.pi * 1000 * t_cal) * (10 ** (-20.0 / 20.0) * np.sqrt(2))
-                cal_buffer = io.BytesIO()
-                sf.write(cal_buffer, tone_cal, fs_cal, format='WAV')
-                cal_buffer.seek(0)
-                st.audio(cal_buffer, format="audio/wav")
-                
-                st.markdown("<hr style='margin: 8px 0; border-color: #334155;' />", unsafe_allow_html=True)
-
-                # Full Range
-                processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
-                if not isinstance(active_target, str): active_target.seek(0)
-                render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full")
-                st.download_button("📥 Save Full-Range", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
-                
-                # Low Pass
-                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
-                if not isinstance(active_target, str): active_target.seek(0)
-                render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp")
-                st.download_button("📥 Save Low-Pass", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
-                
-                # High Pass
-                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
-                if not isinstance(active_target, str): active_target.seek(0)
-                render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp")
-                st.download_button("📥 Save High-Pass", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
-
-            st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-top: 12px;'>[PANEL B] MASTER BATCH</div>", unsafe_allow_html=True)
-            with st.container(border=True):
-                with st.spinner("Compiling..."):
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                        for item in stimuli_manifest:
-                            track_data = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                            if not isinstance(active_target, str): active_target.seek(0)
-                            zip_file.writestr(f"{base_name}_{item['suffix']}.wav", track_data.getvalue())
-                    zip_buffer.seek(0)
+        # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK (No Download Buttons) ---
+        if "LIVE LINE-IN" in ui_mode:
+            left_col, center_col, right_col = st.columns(3)
+            
+            with left_col:
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown("<div style='font-family: monospace; font-size: 0.7rem; color: #e2e8f0; margin-bottom: 2px;'>🎚️ AUDIOMETER VU CALIBRATION (1kHz Tone)</div>", unsafe_allow_html=True)
+                    fs_cal = 44100
+                    t_cal = np.linspace(0, 5.0, int(fs_cal * 5.0), endpoint=False)
+                    tone_cal = np.sin(2 * np.pi * 1000 * t_cal) * (10 ** (-20.0 / 20.0) * np.sqrt(2))
+                    cal_buffer = io.BytesIO()
+                    sf.write(cal_buffer, tone_cal, fs_cal, format='WAV')
+                    cal_buffer.seek(0)
+                    st.audio(cal_buffer, format="audio/wav")
                     
-                    st.download_button("📦 EXPORT COMPLETE SET (.ZIP)", data=zip_buffer, file_name=f"{base_name}_VRA_Complete_Set.zip", mime="application/zip", use_container_width=True, type="primary")
+                    st.markdown("<hr style='margin: 8px 0; border-color: #334155;' />", unsafe_allow_html=True)
 
-        # --- COLUMN 2: CHANNEL 1 — STANDARD FILTER BANK (NBN) ---
-        with center_col:
-            st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 1] STANDARD NBN BANK</div>", unsafe_allow_html=True)
-            with st.container(border=True):
-                nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
-                for idx, item in enumerate(nbn_items):
-                    if idx > 0:
-                        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                    freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                    processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}")
-                    st.download_button(f"📥 Save {freq_lbl} NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"dl_nbn_{freq_lbl}")
+                    render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full")
+                    
+                    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+                    processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
+                    if not isinstance(active_target, str): active_target.seek(0)
+                    render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp")
+                    
+                    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+                    processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
+                    if not isinstance(active_target, str): active_target.seek(0)
+                    render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp")
 
-        # --- COLUMN 3: CHANNEL 2 — HIGH-SPECIFICITY BANK (FRESH) ---
-        with right_col:
-            st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK</div>", unsafe_allow_html=True)
-            with st.container(border=True):
-                fresh_items = [item for item in stimuli_manifest if "FRESH" in item["suffix"]]
-                for idx, item in enumerate(fresh_items):
-                    if idx > 0:
-                        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                    freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                    if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel(f"⚡ FREQ {freq_lbl.upper()} // FRESH", processed_buffer, f"fresh_{freq_lbl}")
-                    st.download_button(f"📥 Save {freq_lbl} FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"dl_fresh_{freq_lbl}")
+            with center_col:
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 1] STANDARD NBN BANK</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
+                    for idx, item in enumerate(nbn_items):
+                        if idx > 0:
+                            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+                        freq_lbl = item["suffix"].split('_')[0]
+                        processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                        if not isinstance(active_target, str): active_target.seek(0)
+                        render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}")
+
+            with right_col:
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    fresh_items = [item for item in stimuli_manifest if "FRESH" in item["suffix"]]
+                    for idx, item in enumerate(fresh_items):
+                        if idx > 0:
+                            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+                        freq_lbl = item["suffix"].split('_')[0]
+                        processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                        if not isinstance(active_target, str): active_target.seek(0)
+                        render_audiometer_channel(f"⚡ FREQ {freq_lbl.upper()} // FRESH", processed_buffer, f"fresh_{freq_lbl}")
+
+        # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
+        else:
+            st.markdown("<h4 style='margin: 0 0 10px 0; font-family: monospace; color: #f8fafc;'>📦 DISK COMPILATION EXPEDITIONS</h4>", unsafe_allow_html=True)
+            
+            dl_col1, dl_col2 = st.columns([1, 2])
+            
+            with dl_col1:
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[BATCH UTILITY] PACK COMPLETE MATRICES</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.caption("Bundles all 11 processed, gated, and RMS-normalized variants into one zip file.")
+                    with st.spinner("Compiling compressed archive..."):
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                            for item in stimuli_manifest:
+                                track_data = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                                if not isinstance(active_target, str): active_target.seek(0)
+                                zip_file.writestr(f"{base_name}_{item['suffix']}.wav", track_data.getvalue())
+                        zip_buffer.seek(0)
+                        
+                        st.download_button("📦 DOWNLOAD COMPLETE SET (.ZIP)", data=zip_buffer, file_name=f"{base_name}_VRA_Complete_Set.zip", mime="application/zip", use_container_width=True, type="primary")
+            
+            with dl_col2:
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[INDIVIDUAL SELECTION] EXTRACT SPECIFIC MANIFEST ARTIFACTS</div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    for item in stimuli_manifest:
+                        # Process target configuration on-demand to maintain system speed
+                        processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                        if not isinstance(active_target, str): active_target.seek(0)
+                        
+                        btn_col1, btn_col2 = st.columns([3, 1])
+                        with btn_col1:
+                            st.markdown(f"<div style='font-family: monospace; font-size: 0.85rem; color: #e2e8f0; padding-top: 6px;'>→ {base_name}_{item['suffix']}.wav</div>", unsafe_allow_html=True)
+                        with btn_col2:
+                            st.download_button("📥 SAVE WAV", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"archive_dl_{item['suffix']}")
 
 # Tiny layout buffer line at the bottom
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
