@@ -122,10 +122,10 @@ if uploaded_file is not None:
         uploaded_file.seek(0)
         
         # Create a visually clean download bar for each track
-        st.download_button(
+       st.download_button(
             label=f"📥 Download {label} Track",
             data=processed_buffer,
-            file_name=f"{base_name}_{band_suffix}_NBN.wav",
+            file_name=f"{base_name}_{band_suffix}.wav",
             mime="audio/wav",
             key=label
         )
