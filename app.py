@@ -154,8 +154,8 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
-# Helper to inject HTML5 audio cards with automatic 2-second pre-roll calculations
-def render_audiometer_channel(label, audio_buffer, element_key):
+# Helper to inject HTML5 audio cards with dynamic playhead alignment settings
+def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     import base64
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
@@ -172,7 +172,7 @@ def render_audiometer_channel(label, audio_buffer, element_key):
         </div>
         
         <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - 2.0); this.innerHTML='⚙️ SET -2s PREROLL'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ SET -' + {preroll_offset} + 's'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
             <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window.parent.sharedVraLoopPoint; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK</button>
         </div>
     </div>
@@ -247,8 +247,14 @@ with st.container(border=True):
             total_duration = 60.0
             if not isinstance(active_target, str): active_target.seek(0)
 
-        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
-        trim_seconds = st.slider("", min_value=0.0, max_value=min(total_duration - 2.0, 30.0), value=0.0, step=0.5, label_visibility="collapsed")
+        # Dual Control Dial Block: Signal Gate + Pre-Roll Alignment Dial
+        slider_col1, slider_col2 = st.columns(2)
+        with slider_col1:
+            st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
+            trim_seconds = st.slider("", min_value=0.0, max_value=min(total_duration - 2.0, 30.0), value=0.0, step=0.5, label_visibility="collapsed", key="trim_slider")
+        with slider_col2:
+            st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #fbbf24; margin-top: 10px; margin-bottom: -5px;'>[ALIGNMENT LATENCY DIAL] JUMP BACK PRE-ROLL (SECONDS)</div>", unsafe_allow_html=True)
+            preroll_offset = st.slider("", min_value=0.0, max_value=5.0, value=2.0, step=0.1, label_visibility="collapsed", key="latency_dial")
         
         stimuli_manifest = [
             {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
@@ -264,9 +270,9 @@ with st.container(border=True):
             {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
         ]
 
-        st.markdown("""
+        st.markdown(f"""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
-                <span style="color: #38bdf8; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">⚡ AUTOMATIC 2-SECOND BEHAVIORAL PREROLL ARMED ACROSS ALL NODES</span>
+                <span style="color: #38bdf8; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">⚡ PLAYHEAD MATRIX SLAVED // PREROLL ALIGNMENT CONFIGURED AT {preroll_offset:.1f} SECONDS</span>
                 <div style="display: flex; align-items: flex-end; height: 14px; gap: 2px;">
                     <div style="width: 3px; height: 4px; background: #38bdf8; animation: pulse 0.4s infinite alternate;"></div>
                     <div style="width: 3px; height: 12px; background: #38bdf8; animation: pulse 0.2s infinite alternate 0.1s;"></div>
@@ -297,17 +303,17 @@ with st.container(border=True):
 
                     processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full")
+                    render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full", preroll_offset)
                     
                     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp")
+                    render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp", preroll_offset)
                     
                     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp")
+                    render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp", preroll_offset)
 
             with center_col:
                 st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 1] STANDARD NBN BANK</div>", unsafe_allow_html=True)
@@ -319,7 +325,7 @@ with st.container(border=True):
                         freq_lbl = item["suffix"].split('_')[0]
                         processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                         if not isinstance(active_target, str): active_target.seek(0)
-                        render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}")
+                        render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}", preroll_offset)
 
             with right_col:
                 st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK</div>", unsafe_allow_html=True)
@@ -331,7 +337,7 @@ with st.container(border=True):
                         freq_lbl = item["suffix"].split('_')[0]
                         processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                         if not isinstance(active_target, str): active_target.seek(0)
-                        render_audiometer_channel(f"⚡ FREQ {freq_lbl.upper()} // FRESH", processed_buffer, f"fresh_{freq_lbl}")
+                        render_audiometer_channel(f"⚡ FREQ {freq_lbl.upper()} // FRESH", processed_buffer, f"fresh_{freq_lbl}", preroll_offset)
 
         # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
         else:
