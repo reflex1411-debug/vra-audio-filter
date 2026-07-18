@@ -235,17 +235,17 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px;">
-            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 10px; border-radius: 0px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">▶️/⏸️ TOGGLE</button>
-            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 10px; border-radius: 0px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">▶️/⏸️</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">⏹️</button>
         </div>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 10px; border-radius: 0px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
-            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 10px; border-radius: 0px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">🐇 JUMP BACK</button>
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️'; setTimeout(()=>{{this.innerHTML='🔴'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">🔴</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">🐇</button>
         </div>
     </div>
     """
-    st.components.v1.html(html_code, height=205)
+    st.components.v1.html(html_code, height=275)
 
 # ==============================================================================
 # UI LOGIC & LAYOUT (Restored Verbose Construction)
