@@ -270,6 +270,7 @@ with st.container(border=True):
             {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
         ]
 
+        # Doubled curly brackets in keyframes to safely escape Python f-string parser checks
         st.markdown(f"""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
                 <span style="color: #38bdf8; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">⚡ PLAYHEAD MATRIX SLAVED // PREROLL ALIGNMENT CONFIGURED AT {preroll_offset:.1f} SECONDS</span>
@@ -280,7 +281,7 @@ with st.container(border=True):
                     <div style="width: 3px; height: 14px; background: #38bdf8; animation: pulse 0.1s infinite alternate 0.3s;"></div>
                 </div>
             </div>
-            <style>@keyframes pulse { 0% { height: 3px; } 100% { height: 14px; } }</style>
+            <style>@keyframes pulse {{ 0% {{ height: 4px; }} 100% {{ height: 16px; }} }}</style>
         """, unsafe_allow_html=True)
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
