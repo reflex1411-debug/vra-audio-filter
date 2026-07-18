@@ -286,12 +286,13 @@ with st.container(border=True):
                     st.rerun()
         st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
 
-    # --- NEW: DYNAMIC SIGNAL MONITOR CONSOLE ---
-    active_filename = st.session_state.get("selected_track_override", "NONE SELECTED")
-    if active_filename == None: active_filename = "NONE SELECTED"
+    # --- DYNAMIC SIGNAL MONITOR CONSOLE ---
+    # Fixed logic to display the actual selected file from the dropdown
+    selected_track_name = st.session_state.get("master_bank_dropdown", "-- Select Track from Bank --")
+    display_name = selected_track_name if selected_track_name != "-- Select Track from Bank --" else "NO SIGNAL SELECTED"
     st.markdown(f"""
-        <div style="background: #0f172a; border: 2px solid #38bdf8; border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 1.5rem; font-weight: bold; box-shadow: 0 0 15px rgba(56,189,248,0.2);">
-            CURRENT SIGNAL: {active_filename}
+        <div style="background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 1.3rem; font-weight: bold; box-shadow: 0 0 15px rgba(56,189,248,0.2);">
+            ACTIVE SIGNAL: {display_name}
         </div>
     """, unsafe_allow_html=True)
 
