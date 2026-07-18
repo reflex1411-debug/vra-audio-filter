@@ -48,6 +48,16 @@ st.markdown("""
             margin-top: 2px !important;
             width: 100%;
         }
+        .audiogram-ruler {
+            display: flex;
+            justify-content: space-between;
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: #94a3b8;
+            margin-bottom: 10px;
+            padding: 0 20px;
+            border-bottom: 1px solid #334155;
+        }
     </style>
     
     <!-- Faceplate Main Header -->
@@ -325,7 +335,8 @@ with st.container(border=True):
                     render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
             st.divider()
-            st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; font-weight: bold;'>[ROW 2] NBN BAND ANALYSIS (500Hz - 4kHz)</div>", unsafe_allow_html=True)
+            st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>")
+            st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; font-weight: bold;'>[ROW 2] NBN FILTERED BANDS (AUDIOGRAM SWEEP)</div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             
             # Row 2: 500, 1000, 2000, 4000Hz NBN
