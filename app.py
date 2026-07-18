@@ -221,7 +221,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
-def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
+def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, filter_complexity):
     """
     Injects HTML5 audio components with interactive playback controls.
     Includes custom JavaScript for Toggle Play/Pause, Stop, Mark Point, and Jump Back.
@@ -262,15 +262,15 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                 var audio = document.getElementById('audio_{element_key}');
                 var bars = document.querySelectorAll('.vu_{element_key}');
                 var animId = null;
-                var isHighFreq = "{element_key}".includes("4000Hz") || "{element_key}".includes("HighPass");
-                var isLowFreq = "{element_key}".includes("500Hz") || "{element_key}".includes("LowPass");
+                var complexity = {filter_complexity}; // 1 = Low (Narrow), 3 = High (Wide)
 
                 function animate() {{
                     if (!audio.paused && !audio.ended) {{
                         bars.forEach(function(bar, i) {{
-                            var timeFactor = Date.now() * (isHighFreq ? 0.015 : isLowFreq ? 0.004 : 0.008);
-                            var sample = Math.sin(timeFactor + (i * 0.8)) * Math.cos(timeFactor * 0.4 - i);
-                            var val = Math.min(1.0, Math.max(0.15, (sample + 1.0) / 2.0 + (Math.random() * 0.25)));
+                            var timeFactor = Date.now() * (0.005 + (complexity * 0.005));
+                            var jitter = Math.random() * (0.1 * complexity);
+                            var sample = Math.sin(timeFactor + (i * 0.5)) * Math.cos(timeFactor * 0.3 - i);
+                            var val = Math.min(1.0, Math.max(0.15, (sample + 1.0) / 2.0 + jitter));
                             bar.style.transform = "scaleY(" + val + ")";
                             bar.style.opacity = val * 0.8 + 0.2;
                         }});
@@ -411,13 +411,13 @@ with st.container(border=True):
             preroll_offset = st.slider("", min_value=0.0, max_value=5.0, value=2.0, step=0.1, label_visibility="collapsed", key="latency_dial")
         
         stimuli_manifest = [
-            {"label": "Broadband", "low": None, "high": None, "type": "raw", "suffix": "Broadband", "order": 8},
-            {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
-            {"label": "High-Pass (>1000 Hz)", "low": 1000, "high": None, "type": "high", "suffix": "HighPass_1kHz", "order": 8},
-            {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_BPF", "order": 8},
-            {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_BPF", "order": 8},
-            {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_BPF", "order": 8},
-            {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_BPF", "order": 8}
+            {"label": "Broadband", "low": None, "high": None, "type": "raw", "suffix": "Broadband", "order": 8, "comp": 3},
+            {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8, "comp": 2},
+            {"label": "High-Pass (>1000 Hz)", "low": 1000, "high": None, "type": "high", "suffix": "HighPass_1kHz", "order": 8, "comp": 2},
+            {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_BPF", "order": 8, "comp": 1},
+            {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_BPF", "order": 8, "comp": 1},
+            {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_BPF", "order": 8, "comp": 1},
+            {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_BPF", "order": 8, "comp": 1}
         ]
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
@@ -430,7 +430,7 @@ with st.container(border=True):
                 with col:
                     processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
+                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset, item["comp"])
 
             # --- DYNAMIC SIGNAL MONITOR CONSOLE ---
             selected_track_name = st.session_state.get("master_bank_dropdown", "-- Select Track from Bank --")
@@ -451,7 +451,7 @@ with st.container(border=True):
                 with col:
                     processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
+                    render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset, item["comp"])
 
         # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
         else:
