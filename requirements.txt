@@ -1,6 +1,6 @@
 streamlit
 numpy
 scipy
-soundfile
 pydub
-audioop-lts
+soundfile
+streamlit-local-storage
