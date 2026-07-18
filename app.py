@@ -108,44 +108,18 @@ if uploaded_file is not None:
         {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
         {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
         {"label": "High-Pass (>1000 Hz)", "low": 1000, "high": None, "type": "high", "suffix": "HighPass_1kHz", "order": 8},
-        # FRESH Profile (Order 20, Narrower Bounds)
-        {"label": "500Hz FRESH", "low": 450, "high": 550, "type": "band", "suffix": "500Hz_FRESH", "order": 20},
-        {"label": "1000Hz FRESH", "low": 900, "high": 1100, "type": "band", "suffix": "1000Hz_FRESH", "order": 20},
-        {"label": "2000Hz FRESH", "low": 1800, "high": 2200, "type": "band", "suffix": "2000Hz_FRESH", "order": 20},
-        {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20},
         # Original NBN Profile (Order 8, 1/3 Octave Bounds)
         {"label": "500Hz Original NBN", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_NBN", "order": 8},
         {"label": "1000Hz Original NBN", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_NBN", "order": 8},
         {"label": "2000Hz Original NBN", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_NBN", "order": 8},
-        {"label": "4000Hz Original NBN", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN", "order": 8}
+        {"label": "4000Hz Original NBN", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN", "order": 8},
+        # FRESH Profile (Order 20, Narrower Bounds)
+        {"label": "500Hz FRESH", "low": 450, "high": 550, "type": "band", "suffix": "500Hz_FRESH", "order": 20},
+        {"label": "1000Hz FRESH", "low": 900, "high": 1100, "type": "band", "suffix": "1000Hz_FRESH", "order": 20},
+        {"label": "2000Hz FRESH", "low": 1800, "high": 2200, "type": "band", "suffix": "2000Hz_FRESH", "order": 20},
+        {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
     ]
 
-    # --- TOP LEVEL: BULK DOWNLOAD ZIP BUTTON ---
-    st.subheader("📦 Bulk Actions")
-    with st.container(border=True):
-        st.markdown("Compile all 11 calibrated configurations into a single compressed folder.")
-        
-        with st.spinner("Building master ZIP package in memory..."):
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                for item in stimuli_manifest:
-                    track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
-                    uploaded_file.seek(0)
-                    filename = f"{base_name}_{item['suffix']}.wav"
-                    zip_file.writestr(filename, track_data.getvalue())
-            
-            zip_buffer.seek(0)
-            
-            st.download_button(
-                label="📦 Download All 11 Tracks (.ZIP)",
-                data=zip_buffer,
-                file_name=f"{base_name}_VRA_Complete_Set.zip",
-                mime="application/zip",
-                use_container_width=True,
-                type="primary"
-            )
-
-    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🎵 Individual Track Downloads")
     st.caption(f"Source track: {uploaded_file.name}")
     
@@ -196,9 +170,35 @@ if uploaded_file is not None:
     
     # 3. Dynamic Filter Profiling via TABS
     st.markdown("**Octave Band Selection**")
-    tab_fresh, tab_nbn = st.tabs(["⚡ FRESH-Style (Ultra-Steep)", "📊 Original Narrowband (NBN)"])
+    tab_nbn, tab_fresh = st.tabs(["📊 Original Narrowband (NBN)", "⚡ FRESH-Style (Ultra-Steep)"])
     
-    # Tab 1: FRESH-Style Layout
+    # Tab 1: Original NBN Layout
+    with tab_nbn:
+        st.caption("Standard 1/3 octave clinical noise bandwidth filtering profiles (Order 8).")
+        col_n1, col_n2 = st.columns(2)
+        nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
+        
+        for idx, item in enumerate(nbn_items):
+            target_col = col_n1 if idx % 2 == 0 else col_n2
+            with target_col:
+                with st.container(border=True):
+                    band_title = item["suffix"].split('_')[0]
+                    st.markdown(f"### {band_title}")
+                    st.caption(item["label"])
+                    
+                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                    uploaded_file.seek(0)
+                    
+                    st.download_button(
+                        label=f"📥 Download {band_title} NBN",
+                        data=processed_buffer,
+                        file_name=f"{base_name}_{item['suffix']}.wav",
+                        mime="audio/wav",
+                        key=f"btn_nbn_{band_title}",
+                        use_container_width=True
+                    )
+
+    # Tab 2: FRESH-Style Layout
     with tab_fresh:
         st.caption("High-specificity steep filter boundaries (Order 20) to limit off-frequency listening.")
         col_f1, col_f2 = st.columns(2)
@@ -224,30 +224,32 @@ if uploaded_file is not None:
                         use_container_width=True
                     )
 
-    # Tab 2: Original NBN Layout
-    with tab_nbn:
-        st.caption("Standard 1/3 octave clinical noise bandwidth filtering profiles (Order 8).")
-        col_n1, col_n2 = st.columns(2)
-        nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+
+    # --- BOTTOM LEVEL: BULK DOWNLOAD ZIP BUTTON ---
+    st.subheader("📦 Bulk Actions")
+    with st.container(border=True):
+        st.markdown("Compile all 11 calibrated configurations into a single compressed folder.")
         
-        for idx, item in enumerate(nbn_items):
-            target_col = col_n1 if idx % 2 == 0 else col_n2
-            with target_col:
-                with st.container(border=True):
-                    band_title = item["suffix"].split('_')[0]
-                    st.markdown(f"### {band_title}")
-                    st.caption(item["label"])
-                    
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+        with st.spinner("Building master ZIP package in memory..."):
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                for item in stimuli_manifest:
+                    track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
                     uploaded_file.seek(0)
-                    
-                    st.download_button(
-                        label=f"📥 Download {band_title} NBN",
-                        data=processed_buffer,
-                        file_name=f"{base_name}_{item['suffix']}.wav",
-                        mime="audio/wav",
-                        key=f"btn_nbn_{band_title}",
-                        use_container_width=True
-                    )
+                    filename = f"{base_name}_{item['suffix']}.wav"
+                    zip_file.writestr(filename, track_data.getvalue())
+            
+            zip_buffer.seek(0)
+            
+            st.download_button(
+                label="📦 Download All 11 Tracks (.ZIP)",
+                data=zip_buffer,
+                file_name=f"{base_name}_VRA_Complete_Set.zip",
+                mime="application/zip",
+                use_container_width=True,
+                type="primary"
+            )
                 
-    st.balloons()
+    # Switched from st.balloons() to st.snow() for a cleaner effect
+    st.snow()
