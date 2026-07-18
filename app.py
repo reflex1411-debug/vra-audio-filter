@@ -5,10 +5,21 @@ from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
 
-# Set up the web page header
-st.set_page_config(page_title="Paediatric VRA Audio Filter", page_icon="🎧", layout="centered")
-st.title("🎧 Paediatric VRA Audio Filter")
-st.markdown("Upload any nursery rhyme or children's song (.mp3 or .wav) to automatically generate frequency-specific or dynamically flattened VRA stimuli.")
+# Set up a modern, polished page config
+st.set_page_config(
+    page_title="VRA Audio Toolkit", 
+    page_icon="🎧", 
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# Custom Design Header
+st.markdown("""
+    <div style="background-color: #f0f2f6; padding: 25px; border-radius: 12px; margin-bottom: 25px; text-align: center; border-left: 5px solid #475569;">
+        <h1 style="color: #1e293b; margin: 0; font-family: sans-serif; font-size: 2rem;">🎧 Paediatric VRA Audio Toolkit</h1>
+        <p style="color: #64748b; font-size: 1rem; margin-top: 8px; margin-bottom: 0;">Transform standard tracks into calibrated, dynamically flattened clinical stimuli.</p>
+    </div>
+""", unsafe_allow_html=True)
 
 # Core Filtering & Compression Functions
 def butter_bandpass_sos(lowcut, highcut, fs, order=8):
@@ -40,8 +51,6 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None):
     else:
         data, fs = sf.read(io.BytesIO(file_bytes))
         
-    # If cutoffs are provided, apply the narrow bandpass filter. 
-    # If they are None, skip filtering and pass the raw track straight to the compressor.
     if lowcut and highcut:
         sos = butter_bandpass_sos(lowcut, highcut, fs, order=8)
         if len(data.shape) > 1:
@@ -65,69 +74,64 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None):
     virtual_file.seek(0)
     return virtual_file
 
-# UI File Uploader
-uploaded_file = st.file_uploader("Drag and drop your audio file here", type=["mp3", "wav"])
+# Clean UI Box for File Uploading
+with st.container():
+    uploaded_file = st.file_uploader("📂 Select an audio track from your computer", type=["mp3", "wav"])
 
 if uploaded_file is not None:
-    st.success(f"Successfully loaded: {uploaded_file.name}")
-    st.info("Processing clinical bands... please wait a moment.")
+    st.markdown("---")
+    st.subheader("🎵 Available Clinical Stimuli")
+    st.caption(f"Loaded source track: {uploaded_file.name}")
     
-    # Define VRA Targets (added Full-Range Flattened option)
+    # 1. Full-Range Conditioned Option gets its own prominent card at the top
+    with st.container(border=True):
+        st.markdown("**Conditioning & Baseline Track**")
+        processed_buffer = process_audio_buffer(uploaded_file, None, None)
+        uploaded_file.seek(0)
+        
+        st.download_button(
+            label="📥 Download Full-Range (Flattened Original)",
+            data=processed_buffer,
+            file_name=f"{uploaded_file.name.rsplit('.', 1)[0]}_Full-Range.wav",
+            mime="audio/wav",
+            use_container_width=True
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("**Narrow Band Frequencies**")
+
+    # 2. Narrow Bands organized into a clean 2x2 grid layout
     bands = {
-        "Full-Range (Flattened Original)": (None, None),
-        "500Hz (Bass tracking)": (420, 595),
-        "1000Hz (Core speech)": (841, 1189),
-        "2000Hz (Consonants)": (1682, 2378),
-        "4000Hz (High-frequency whistle)": (3364, 4757)
+        "500Hz": ((420, 595), "Bass Tracking"),
+        "1000Hz": ((841, 1189), "Core Speech"),
+        "2000Hz": ((1682, 2378), "Consonants"),
+        "4000Hz": ((3364, 4757), "High Whistle")
     }
     
     base_name = uploaded_file.name.rsplit('.', 1)[0]
     
-    for label, (low, high) in bands.items():
-        band_suffix = label.split()[0]
-        
-        processed_buffer = process_audio_buffer(uploaded_file, low, high)
-        uploaded_file.seek(0)
-        
-        st.download_button(
-            label=f"📥 Download {label} Track",
-            data=processed_buffer,
-            file_name=f"{base_name}_{band_suffix}.wav",
-            mime="audio/wav",
-            key=label
-        )
+    # Generate 2 columns to break up the vertical stack
+    col1, col2 = st.columns(2)
     
-    st.balloons()if uploaded_file is not None:
-    st.success(f"Successfully loaded: {uploaded_file.name}")
-    st.info("Processing clinical bands... please wait a moment.")
-    
-    # Define VRA Targets
-    bands = {
-        "500Hz (Bass tracking)": (420, 595),
-        "1000Hz (Core speech)": (841, 1189),
-        "2000Hz (Consonants)": (1682, 2378),
-        "4000Hz (High-frequency whistle)": (3364, 4757)
-    }
-    
-    base_name = uploaded_file.name.rsplit('.', 1)[0]
-    
-    # Process each band and create layout rows for downloading
-    for label, (low, high) in bands.items():
-        band_suffix = label.split()[0] # e.g., "500Hz"
+    for idx, (band_name, ((low, high), description)) in enumerate(bands.items()):
+        # Alternate items between left (col1) and right (col2) columns
+        target_col = col1 if idx % 2 == 0 else col2
         
-        # Process the audio array
-        processed_buffer = process_audio_buffer(uploaded_file, low, high)
-        
-        # Reset uploaded file read pointer for next loop iteration
-        uploaded_file.seek(0)
-        
-        # Create a visually clean download bar for each track
-        st.download_button(
-            label=f"📥 Download {label} Track",
-            data=processed_buffer,
-            file_name=f"{base_name}_{band_suffix}.wav",
-            mime="audio/wav",
-            key=label
-        )
-    
+        with target_col:
+            with st.container(border=True):
+                st.markdown(f"### {band_name}")
+                st.caption(description)
+                
+                processed_buffer = process_audio_buffer(uploaded_file, low, high)
+                uploaded_file.seek(0)
+                
+                st.download_button(
+                    label=f"📥 Download {band_name}",
+                    data=processed_buffer,
+                    file_name=f"{base_name}_{band_name}_NBN.wav",
+                    mime="audio/wav",
+                    key=f"btn_{band_name}",
+                    use_container_width=True
+                )
+                
     st.balloons()
