@@ -230,7 +230,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
@@ -285,6 +285,15 @@ with st.container(border=True):
                     st.session_state.selected_track_override = fav_name
                     st.rerun()
         st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+
+    # --- NEW: DYNAMIC SIGNAL MONITOR CONSOLE ---
+    active_filename = st.session_state.get("selected_track_override", "NONE SELECTED")
+    if active_filename == None: active_filename = "NONE SELECTED"
+    st.markdown(f"""
+        <div style="background: #0f172a; border: 2px solid #38bdf8; border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 1.5rem; font-weight: bold; box-shadow: 0 0 15px rgba(56,189,248,0.2);">
+            CURRENT SIGNAL: {active_filename}
+        </div>
+    """, unsafe_allow_html=True)
 
     top_col1, top_col2 = st.columns([1, 1])
     
@@ -387,7 +396,7 @@ with st.container(border=True):
                     if not isinstance(active_target, str): active_target.seek(0)
                     render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
-            st.divider()
+            st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             st.markdown("<div style='font-family: monospace; font-size: 1.1rem; color: #fbbf24; font-weight: bold;'>BPF FILTERED BANDS (AUDIOGRAM SWEEP)</div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
