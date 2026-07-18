@@ -6,23 +6,24 @@ from pydub import AudioSegment
 import io
 import zipfile
 
-# Set up a modern, polished page config
+# Set up a wide layout to maximize screen real estate and reduce scrolling
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Custom Design Header with Embedded Hummingbird Logo
+# Ultra-Compact Design Header with Embedded Hummingbird Logo
 st.markdown("""
-    <div style="background-color: #f0f2f6; padding: 25px; border-radius: 12px; margin-bottom: 25px; text-align: center; border-left: 5px solid #475569; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-        <!-- Clean, modern minimalist SVG Hummingbird Logo -->
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="60" height="60" style="margin-bottom: 10px;">
+    <div style="background-color: #f0f2f6; padding: 12px 25px; border-radius: 8px; margin-bottom: 15px; border-left: 5px solid #475569; display: flex; align-items: center; justify-content: center; gap: 20px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40">
             <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#475569"/>
         </svg>
-        <h1 style="color: #1e293b; margin: 0; font-family: sans-serif; font-size: 2rem;">Neilio's VRA Audio Toolkit</h1>
-        <p style="color: #64748b; font-size: 1rem; margin-top: 8px; margin-bottom: 0;">Transform standard tracks into calibrated, RMS-normalized clinical stimuli.</p>
+        <div style="text-align: left;">
+            <h1 style="color: #1e293b; margin: 0; font-family: sans-serif; font-size: 1.5rem; display: inline-block;">Neilio's VRA Audio Toolkit</h1>
+            <span style="color: #64748b; font-size: 0.9rem; margin-left: 15px;">Calibrated, RMS-normalized clinical stimuli.</span>
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -96,51 +97,12 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='
     return virtual_file
 
 # Clean UI Box for File Uploading
-with st.container():
-    uploaded_file = st.file_uploader("📂 Select an audio track from your computer", type=["mp3", "wav"])
+uploaded_file = st.file_uploader("📂 Select an audio track from your computer", type=["mp3", "wav"])
 
 if uploaded_file is not None:
-    st.markdown("---")
-    
-    # Custom HTML/CSS/JS Soundwave and Music Note Canvas Visualizer
-    st.markdown("""
-        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
-            <div style="color: #38bdf8; font-weight: 600; font-size: 1.1rem; margin-bottom: 12px; font-family: sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <span>✨ Audio Processing Success</span>
-            </div>
-            <div style="display: flex; justify-content: center; align-items: flex-end; height: 50px; gap: 3px; margin: 15px auto;">
-                <div style="width: 4px; background: #38bdf8; border-radius: 2px; animation: wave 1.2s ease-in-out infinite alternate; animation-delay: 0.1s;"></div>
-                <div style="width: 4px; background: #0ea5e9; border-radius: 2px; animation: wave 0.9s ease-in-out infinite alternate; animation-delay: 0.4s;"></div>
-                <div style="width: 4px; background: #0284c7; border-radius: 2px; animation: wave 1.4s ease-in-out infinite alternate; animation-delay: 0.2s;"></div>
-                <div style="width: 4px; background: #38bdf8; border-radius: 2px; animation: wave 1.0s ease-in-out infinite alternate; animation-delay: 0.6s;"></div>
-                <div style="width: 4px; background: #60a5fa; border-radius: 2px; animation: wave 1.1s ease-in-out infinite alternate; animation-delay: 0.3s;"></div>
-                <div style="width: 4px; background: #3b82f6; border-radius: 2px; animation: wave 1.3s ease-in-out infinite alternate; animation-delay: 0.5s;"></div>
-                <div style="width: 4px; background: #2563eb; border-radius: 2px; animation: wave 0.8s ease-in-out infinite alternate; animation-delay: 0.7s;"></div>
-            </div>
-            <div style="position: relative; height: 20px; overflow: hidden; font-size: 1.2rem; color: #64748b;">
-                <span style="position: absolute; left: 20%; animation: floatNote 3s linear infinite; animation-delay: 0s;">♪</span>
-                <span style="position: absolute; left: 40%; animation: floatNote 2.5s linear infinite; animation-delay: 0.5s;">♫</span>
-                <span style="position: absolute; left: 60%; animation: floatNote 3.5s linear infinite; animation-delay: 0.2s;">♩</span>
-                <span style="position: absolute; left: 80%; animation: floatNote 2.8s linear infinite; animation-delay: 0.8s;">♬</span>
-            </div>
-        </div>
-        
-        <style>
-            @keyframes wave {
-                0% { height: 10px; }
-                100% { height: 45px; }
-            }
-            @keyframes floatNote {
-                0% { transform: translateY(20px) scale(0.8); opacity: 0; }
-                50% { opacity: 0.8; transform: translateY(-5px) scale(1.1); color: #38bdf8; }
-                100% { transform: translateY(-30px) scale(0.8); opacity: 0; }
-            }
-        </style>
-    """, unsafe_allow_html=True)
-    
     base_name = uploaded_file.name.rsplit('.', 1)[0]
     
-    # Master manifest detailing all 11 possible outputs for the bulk ZIP engine
+    # Master manifest detailing all 11 possible outputs
     stimuli_manifest = [
         {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
         {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
@@ -157,134 +119,72 @@ if uploaded_file is not None:
         {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
     ]
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🎵 Individual Track Downloads")
-    st.caption(f"Source track: {uploaded_file.name}")
+    # Thin, highly compact audio processing status strip with mini-soundwave
+    st.markdown("""
+        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 6px; padding: 6px 15px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #334155;">
+            <span style="color: #38bdf8; font-weight: 600; font-size: 0.85rem; font-family: sans-serif;">✨ Audio Variants Generated Successfully</span>
+            <div style="display: flex; align-items: flex-end; height: 16px; gap: 2px;">
+                <div style="width: 2px; height: 6px; background: #38bdf8; animation: pulse 0.5s infinite alternate;"></div>
+                <div style="width: 2px; height: 14px; background: #38bdf8; animation: pulse 0.3s infinite alternate 0.1s;"></div>
+                <div style="width: 2px; height: 10px; background: #38bdf8; animation: pulse 0.4s infinite alternate 0.2s;"></div>
+                <div style="width: 2px; height: 16px; background: #38bdf8; animation: pulse 0.2s infinite alternate 0.3s;"></div>
+            </div>
+        </div>
+        <style>@keyframes pulse { 0% { height: 4px; } 100% { height: 16px; } }</style>
+    """, unsafe_allow_html=True)
     
-    # 1. Full-Range Baseline Row
-    with st.container(border=True):
-        st.markdown("**Conditioning & Baseline Track**")
-        processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8)
-        uploaded_file.seek(0)
-        st.download_button(
-            label="📥 Download Full-Range (Calibrated Original)",
-            data=processed_buffer,
-            file_name=f"{base_name}_Full-Range.wav",
-            mime="audio/wav",
-            use_container_width=True
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    # 3-Column Master Grid Layout
+    left_col, center_col, right_col = st.columns(3)
     
-    # 2. Broad Spectrum Splits Row
-    st.markdown("**Broad Spectrum Splits**")
-    col_lp, col_hp = st.columns(2)
-    with col_lp:
+    # --- COLUMN 1: BASELINE & BROAD FILTERS ---
+    with left_col:
+        st.markdown("<h4 style='margin: 0 0 5px 0; font-size: 1.05rem;'>📋 Base & Broad Splits</h4>", unsafe_allow_html=True)
+        
         with st.container(border=True):
-            st.markdown("### Low-Pass (≤1000 Hz)")
+            processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8)
+            uploaded_file.seek(0)
+            st.download_button("📥 Full-Range Original", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
+            
             processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low', 8)
             uploaded_file.seek(0)
-            st.download_button(
-                label="📥 Download Low-Pass",
-                data=processed_buffer,
-                file_name=f"{base_name}_LowPass_1kHz.wav",
-                mime="audio/wav",
-                use_container_width=True
-            )
-    with col_hp:
-        with st.container(border=True):
-            st.markdown("### High-Pass (>1000 Hz)")
+            st.download_button("📥 Low-Pass (≤1kHz)", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
+            
             processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high', 8)
             uploaded_file.seek(0)
-            st.download_button(
-                label="📥 Download High-Pass",
-                data=processed_buffer,
-                file_name=f"{base_name}_HighPass_1kHz.wav",
-                mime="audio/wav",
-                use_container_width=True
-            )
+            st.download_button("📥 High-Pass (>1kHz)", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 3. Dynamic Filter Profiling via TABS
-    st.markdown("**Octave Band Selection**")
-    tab_nbn, tab_fresh = st.tabs(["📊 Original Narrowband (NBN)", "⚡ FRESH-Style (Ultra-Steep)"])
-    
-    # Tab 1: Original NBN Layout
-    with tab_nbn:
-        st.caption("Standard 1/3 octave clinical noise bandwidth filtering profiles (Order 8).")
-        col_n1, col_n2 = st.columns(2)
-        nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
-        
-        for idx, item in enumerate(nbn_items):
-            target_col = col_n1 if idx % 2 == 0 else col_n2
-            with target_col:
-                with st.container(border=True):
-                    band_title = item["suffix"].split('_')[0]
-                    st.markdown(f"### {band_title}")
-                    st.caption(item["label"])
-                    
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
-                    uploaded_file.seek(0)
-                    
-                    st.download_button(
-                        label=f"📥 Download {band_title} NBN",
-                        data=processed_buffer,
-                        file_name=f"{base_name}_{item['suffix']}.wav",
-                        mime="audio/wav",
-                        key=f"btn_nbn_{band_title}",
-                        use_container_width=True
-                    )
+        # Bulk Actions integrated inside the first column to prevent bottom-scrolling
+        st.markdown("<h4 style='margin: 10px 0 5px 0; font-size: 1.05rem;'>📦 Batch Download</h4>", unsafe_allow_html=True)
+        with st.container(border=True):
+            with st.spinner("Zipping..."):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                    for item in stimuli_manifest:
+                        track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                        uploaded_file.seek(0)
+                        zip_file.writestr(f"{base_name}_{item['suffix']}.wav", track_data.getvalue())
+                zip_buffer.seek(0)
+                
+                st.download_button("📦 All 11 Tracks (.ZIP)", data=zip_buffer, file_name=f"{base_name}_VRA_Complete_Set.zip", mime="application/zip", use_container_width=True, type="primary")
 
-    # Tab 2: FRESH-Style Layout
-    with tab_fresh:
-        st.caption("High-specificity steep filter boundaries (Order 20) to limit off-frequency listening.")
-        col_f1, col_f2 = st.columns(2)
-        fresh_items = [item for item in stimuli_manifest if "FRESH" in item["suffix"]]
-        
-        for idx, item in enumerate(fresh_items):
-            target_col = col_f1 if idx % 2 == 0 else col_f2
-            with target_col:
-                with st.container(border=True):
-                    band_title = item["suffix"].split('_')[0]
-                    st.markdown(f"### {band_title}")
-                    st.caption(item["label"])
-                    
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
-                    uploaded_file.seek(0)
-                    
-                    st.download_button(
-                        label=f"📥 Download {band_title} FRESH",
-                        data=processed_buffer,
-                        file_name=f"{base_name}_{item['suffix']}.wav",
-                        mime="audio/wav",
-                        key=f"btn_fresh_{band_title}",
-                        use_container_width=True
-                    )
+    # --- COLUMN 2: ORIGINAL NARROWBAND (NBN) ---
+    with center_col:
+        st.markdown("<h4 style='margin: 0 0 5px 0; font-size: 1.05rem;'>📊 Original Narrowband</h4>", unsafe_allow_html=True)
+        with st.container(border=True):
+            nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
+            for item in nbn_items:
+                freq_lbl = item["suffix"].split('_')[0]
+                processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                uploaded_file.seek(0)
+                st.download_button(f"📥 {freq_lbl} NBN Track", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"nbn_{freq_lbl}")
 
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-
-    # --- BOTTOM LEVEL: BULK DOWNLOAD ZIP BUTTON ---
-    st.subheader("📦 Bulk Actions")
-    with st.container(border=True):
-        st.markdown("Compile all 11 calibrated configurations into a single compressed folder.")
-        
-        with st.spinner("Building master ZIP package in memory..."):
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                for item in stimuli_manifest:
-                    track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
-                    uploaded_file.seek(0)
-                    filename = f"{base_name}_{item['suffix']}.wav"
-                    zip_file.writestr(filename, track_data.getvalue())
-            
-            zip_buffer.seek(0)
-            
-            st.download_button(
-                label="📦 Download All 11 Tracks (.ZIP)",
-                data=zip_buffer,
-                file_name=f"{base_name}_VRA_Complete_Set.zip",
-                mime="application/zip",
-                use_container_width=True,
-                type="primary"
-            )
+    # --- COLUMN 3: FRESH-STYLE FILTERS ---
+    with right_col:
+        st.markdown("<h4 style='margin: 0 0 5px 0; font-size: 1.05rem;'>⚡ FRESH-Style (Steep)</h4>", unsafe_allow_html=True)
+        with st.container(border=True):
+            fresh_items = [item for item in stimuli_manifest if "FRESH" in item["suffix"]]
+            for item in fresh_items:
+                freq_lbl = item["suffix"].split('_')[0]
+                processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                uploaded_file.seek(0)
+                st.download_button(f"📥 {freq_lbl} FRESH Track", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"fresh_{freq_lbl}")
