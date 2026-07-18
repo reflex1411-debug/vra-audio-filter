@@ -101,6 +101,43 @@ with st.container():
 
 if uploaded_file is not None:
     st.markdown("---")
+    
+    # Custom HTML/CSS/JS Soundwave and Music Note Canvas Visualizer
+    st.markdown("""
+        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+            <div style="color: #38bdf8; font-weight: 600; font-size: 1.1rem; margin-bottom: 12px; font-family: sans-serif; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <span>✨ Audio Processing Success</span>
+            </div>
+            <div style="display: flex; justify-content: center; align-items: flex-end; height: 50px; gap: 3px; margin: 15px auto;">
+                <div style="width: 4px; background: #38bdf8; border-radius: 2px; animation: wave 1.2s ease-in-out infinite alternate; animation-delay: 0.1s;"></div>
+                <div style="width: 4px; background: #0ea5e9; border-radius: 2px; animation: wave 0.9s ease-in-out infinite alternate; animation-delay: 0.4s;"></div>
+                <div style="width: 4px; background: #0284c7; border-radius: 2px; animation: wave 1.4s ease-in-out infinite alternate; animation-delay: 0.2s;"></div>
+                <div style="width: 4px; background: #38bdf8; border-radius: 2px; animation: wave 1.0s ease-in-out infinite alternate; animation-delay: 0.6s;"></div>
+                <div style="width: 4px; background: #60a5fa; border-radius: 2px; animation: wave 1.1s ease-in-out infinite alternate; animation-delay: 0.3s;"></div>
+                <div style="width: 4px; background: #3b82f6; border-radius: 2px; animation: wave 1.3s ease-in-out infinite alternate; animation-delay: 0.5s;"></div>
+                <div style="width: 4px; background: #2563eb; border-radius: 2px; animation: wave 0.8s ease-in-out infinite alternate; animation-delay: 0.7s;"></div>
+            </div>
+            <div style="position: relative; height: 20px; overflow: hidden; font-size: 1.2rem; color: #64748b;">
+                <span style="position: absolute; left: 20%; animation: floatNote 3s linear infinite; animation-delay: 0s;">♪</span>
+                <span style="position: absolute; left: 40%; animation: floatNote 2.5s linear infinite; animation-delay: 0.5s;">♫</span>
+                <span style="position: absolute; left: 60%; animation: floatNote 3.5s linear infinite; animation-delay: 0.2s;">♩</span>
+                <span style="position: absolute; left: 80%; animation: floatNote 2.8s linear infinite; animation-delay: 0.8s;">♬</span>
+            </div>
+        </div>
+        
+        <style>
+            @keyframes wave {
+                0% { height: 10px; }
+                100% { height: 45px; }
+            }
+            @keyframes floatNote {
+                0% { transform: translateY(20px) scale(0.8); opacity: 0; }
+                50% { opacity: 0.8; transform: translateY(-5px) scale(1.1); color: #38bdf8; }
+                100% { transform: translateY(-30px) scale(0.8); opacity: 0; }
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
     base_name = uploaded_file.name.rsplit('.', 1)[0]
     
     # Master manifest detailing all 11 possible outputs for the bulk ZIP engine
@@ -120,6 +157,7 @@ if uploaded_file is not None:
         {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
     ]
 
+    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🎵 Individual Track Downloads")
     st.caption(f"Source track: {uploaded_file.name}")
     
@@ -250,6 +288,3 @@ if uploaded_file is not None:
                 use_container_width=True,
                 type="primary"
             )
-                
-    # Switched from st.balloons() to st.snow() for a cleaner effect
-    st.snow()
