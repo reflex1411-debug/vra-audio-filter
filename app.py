@@ -224,7 +224,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
 def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, filter_complexity):
     """
     Injects HTML5 audio components with interactive playback controls.
-    Includes custom JavaScript for Toggle Play/Pause, Stop, Mark Point, and Jump Back.
+    Includes custom JavaScript Web Audio Analyser for realistic VU behavior.
     """
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
@@ -234,15 +234,15 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         
         <!-- Hardware Signal VU Display Subsystem -->
-        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 36px;">
-            <div class="vu_{element_key}" style="width: 10%; height: 40%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.08s ease, opacity 0.08s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 65%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.07s ease, opacity 0.07s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 85%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.09s ease, opacity 0.09s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 100%; background-color: #22c55e; opacity: 0.2; border-radius: 2px; transition: transform 0.06s ease, opacity 0.06s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 100%; background-color: #eab308; opacity: 0.2; border-radius: 2px; transition: transform 0.08s ease, opacity 0.08s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 85%; background-color: #22c55e; opacity: 0.2; border-radius: 2px; transition: transform 0.07s ease, opacity 0.07s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 65%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.09s ease, opacity 0.09s ease; transform-origin: bottom;"></div>
-            <div class="vu_{element_key}" style="width: 10%; height: 40%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.05s ease, opacity 0.05s ease; transform-origin: bottom;"></div>
+        <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 36px;">
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #22c55e; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #eab308; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #22c55e; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
+            <div class="vu_bar_{element_key}" style="width: 10%; height: 20%; background-color: #10b981; border-radius: 2px;"></div>
         </div>
 
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
@@ -259,34 +259,33 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
 
         <script>
             (function() {{
-                var audio = document.getElementById('audio_{element_key}');
-                var bars = document.querySelectorAll('.vu_{element_key}');
-                var animId = null;
-                var complexity = {filter_complexity}; // 1 = Low (Narrow), 3 = High (Wide)
-
-                function animate() {{
-                    if (!audio.paused && !audio.ended) {{
-                        bars.forEach(function(bar, i) {{
-                            var timeFactor = Date.now() * (0.005 + (complexity * 0.005));
-                            var jitter = Math.random() * (0.1 * complexity);
-                            var sample = Math.sin(timeFactor + (i * 0.5)) * Math.cos(timeFactor * 0.3 - i);
-                            var val = Math.min(1.0, Math.max(0.15, (sample + 1.0) / 2.0 + jitter));
-                            bar.style.transform = "scaleY(" + val + ")";
-                            bar.style.opacity = val * 0.8 + 0.2;
-                        }});
-                        animId = requestAnimationFrame(animate);
-                    }} else {{
-                        bars.forEach(function(bar) {{
-                            bar.style.transform = "scaleY(0.25)";
-                            bar.style.opacity = "0.2";
-                        }});
+                const audio = document.getElementById('audio_{element_key}');
+                const bars = document.querySelectorAll('.vu_bar_{element_key}');
+                let audioCtx, analyser, dataArray, source;
+                
+                audio.addEventListener('play', () => {{
+                    if (!audioCtx) {{
+                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        analyser = audioCtx.createAnalyser();
+                        source = audioCtx.createMediaElementSource(audio);
+                        source.connect(analyser);
+                        analyser.connect(audioCtx.destination);
+                        analyser.fftSize = 64;
+                        dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
-                }}
-
-                audio.addEventListener('play', function() {{ if(!animId) animate(); }});
-                audio.addEventListener('pause', function() {{ if(animId) {{ cancelAnimationFrame(animId); animId = null; }} animate(); }});
-                audio.addEventListener('ended', function() {{ if(animId) {{ cancelAnimationFrame(animId); animId = null; }} animate(); }});
-                audio.addEventListener('timeupdate', function() {{ if(!audio.paused && !animId) animate(); }});
+                    function update() {{
+                        if (!audio.paused) {{
+                            analyser.getByteFrequencyData(dataArray);
+                            bars.forEach((bar, i) => {{
+                                const val = (dataArray[i] || 0) / 255.0;
+                                bar.style.height = (20 + (val * 80)) + "%";
+                                bar.style.opacity = 0.2 + (val * 0.8);
+                            }});
+                            requestAnimationFrame(update);
+                        }}
+                    }}
+                    update();
+                }}, {{once: true}});
             }})();
         </script>
     </div>
