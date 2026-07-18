@@ -230,8 +230,21 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
-        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 8px; letter-spacing: 0.5px;">{label}</div>
+        
+        <!-- Hardware Signal VU Display Subsystem -->
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 36px;">
+            <div class="vu_{element_key}" style="width: 10%; height: 40%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.08s ease, opacity 0.08s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 65%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.07s ease, opacity 0.07s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 85%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.09s ease, opacity 0.09s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 100%; background-color: #22c55e; opacity: 0.2; border-radius: 2px; transition: transform 0.06s ease, opacity 0.06s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 100%; background-color: #eab308; opacity: 0.2; border-radius: 2px; transition: transform 0.08s ease, opacity 0.08s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 85%; background-color: #22c55e; opacity: 0.2; border-radius: 2px; transition: transform 0.07s ease, opacity 0.07s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 65%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.09s ease, opacity 0.09s ease; transform-origin: bottom;"></div>
+            <div class="vu_{element_key}" style="width: 10%; height: 40%; background-color: #10b981; opacity: 0.2; border-radius: 2px; transition: transform 0.05s ease, opacity 0.05s ease; transform-origin: bottom;"></div>
+        </div>
+
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
@@ -243,9 +256,42 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
             <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
             <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
+
+        <script>
+            (function() {{
+                var audio = document.getElementById('audio_{element_key}');
+                var bars = document.querySelectorAll('.vu_{element_key}');
+                var animId = null;
+                var isHighFreq = "{element_key}".includes("4000Hz") || "{element_key}".includes("HighPass");
+                var isLowFreq = "{element_key}".includes("500Hz") || "{element_key}".includes("LowPass");
+
+                function animate() {{
+                    if (!audio.paused && !audio.ended) {{
+                        bars.forEach(function(bar, i) {{
+                            var timeFactor = Date.now() * (isHighFreq ? 0.015 : isLowFreq ? 0.004 : 0.008);
+                            var sample = Math.sin(timeFactor + (i * 0.8)) * Math.cos(timeFactor * 0.4 - i);
+                            var val = Math.min(1.0, Math.max(0.15, (sample + 1.0) / 2.0 + (Math.random() * 0.25)));
+                            bar.style.transform = "scaleY(" + val + ")";
+                            bar.style.opacity = val * 0.8 + 0.2;
+                        }});
+                        animId = requestAnimationFrame(animate);
+                    } else {{
+                        bars.forEach(function(bar) {{
+                            bar.style.transform = "scaleY(0.25)";
+                            bar.style.opacity = "0.2";
+                        }});
+                    }}
+                }}
+
+                audio.addEventListener('play', function() {{ if(!animId) animate(); }});
+                audio.addEventListener('pause', function() {{ if(animId) {{ cancelAnimationFrame(animId); animId = null; }} animate(); }});
+                audio.addEventListener('ended', function() {{ if(animId) {{ cancelAnimationFrame(animId); animId = null; }} animate(); }});
+                audio.addEventListener('timeupdate', function() {{ if(!audio.paused && !animId) animate(); }});
+            }})();
+        </script>
     </div>
     """
-    st.components.v1.html(html_code, height=310)
+    st.components.v1.html(html_code, height=365)
 
 # ==============================================================================
 # UI LOGIC & LAYOUT (Restored Verbose Construction)
@@ -386,7 +432,7 @@ with st.container(border=True):
                     if not isinstance(active_target, str): active_target.seek(0)
                     render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
-            # --- DYNAMIC SIGNAL MONITOR CONSOLE (Moved here) ---
+            # --- DYNAMIC SIGNAL MONITOR CONSOLE ---
             selected_track_name = st.session_state.get("master_bank_dropdown", "-- Select Track from Bank --")
             display_name = selected_track_name if selected_track_name != "-- Select Track from Bank --" else "NO SIGNAL SELECTED"
             st.markdown(f"""
