@@ -41,6 +41,7 @@ st.markdown("""
             height: 32px !important;
             margin-bottom: 8px !important;
             margin-top: 2px !important;
+            width: 100%;
         }
     </style>
     
@@ -103,7 +104,6 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     return normalized_data
 
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
-    # Handles both binary stream uploads and local server files smoothly
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f:
             file_bytes = f.read()
@@ -154,15 +154,37 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
+# Helper to inject HTML5 audio cards with integrated live hardware controls
+def render_audiometer_channel(label, audio_buffer, element_key):
+    import base64
+    audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
+    audio_src = f"data:audio/wav;base64,{audio_base64}"
+    
+    html_code = f"""
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+        <div style="font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
+        
+        <audio id="audio_{element_key}" src="{audio_src}" controls></audio>
+        
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+            <button onclick="document.getElementById('audio_{element_key}').play()" style="flex: 1; background-color: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">▶ PLAY</button>
+            <button onclick="document.getElementById('audio_{element_key}').pause()" style="flex: 1; background-color: #ef4444; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">⏸ PAUSE</button>
+        </div>
+        
+        <div style="display: flex; gap: 6px; margin-top: 6px;">
+            <button onclick="window['loop_{element_key}'] = document.getElementById('audio_{element_key}').currentTime; this.innerHTML='⚙️ CAPTURED ' + window['loop_{element_key}'].toFixed(1) + 's'; setTimeout(()=>{{this.innerHTML='🔴 MARK INTEREST POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK INTEREST POINT</button>
+            <button onclick="if(window['loop_{element_key}'] !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window['loop_{element_key}']; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK & PLAY</button>
+        </div>
+    </div>
+    """
+    st.components.v1.html(html_code, height=135)
+
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
-    
-    # Structural Layout Split: Dropdown Library Menu vs. Add New Upload Port
     top_col1, top_col2 = st.columns([2, 1])
     
     with top_col1:
         st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[AUDIO STIMULI BANK] SELECT ACTIVE TRACK</div>", unsafe_allow_html=True)
-        # Scan local repository directory for stored tracks
         stored_files = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))]
         all_options = ["-- Select Track from Bank --"] + stored_files + list(st.session_state.session_tracks.keys())
         selected_track_name = st.selectbox("", options=all_options, label_visibility="collapsed")
@@ -172,13 +194,10 @@ with st.container(border=True):
         new_upload = st.file_uploader("", type=["mp3", "wav"], label_visibility="collapsed", key="uploader_portal")
         
         if new_upload is not None:
-            # Check if it's already recorded to prevent duplicate loop re-execution overrides
             if new_upload.name not in st.session_state.session_tracks:
-                # Store stream object locally inside system memory session state
                 st.session_state.session_tracks[new_upload.name] = new_upload.read()
                 st.rerun()
 
-    # Establish the true active target path block based on menu selection
     active_target = None
     base_name = ""
     
@@ -187,9 +206,6 @@ with st.container(border=True):
             active_target = os.path.join(LIBRARY_DIR, selected_track_name)
             base_name = selected_track_name.rsplit('.', 1)[0]
         else:
-            # Pull directly out of cached binary session storage
-            active_target = io.BytesIO(st.session_state.session_tracks[selected_track_name])
-            # Emulate file name structures to pass type detection assertions smoothly
             class NamedBytesIO(io.BytesIO):
                 def __init__(self, buffer, name):
                     super().__init__(buffer)
@@ -198,7 +214,6 @@ with st.container(border=True):
             base_name = selected_track_name.rsplit('.', 1)[0]
 
     if active_target is not None:
-        # Determine track length to scale the slider limits dynamically
         try:
             if isinstance(active_target, str):
                 if active_target.lower().endswith('.mp3'):
@@ -221,11 +236,9 @@ with st.container(border=True):
             total_duration = 60.0
             if not isinstance(active_target, str): active_target.seek(0)
 
-        # Hardware Attenuation Style Gate Slider
         st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
         trim_seconds = st.slider("", min_value=0.0, max_value=min(total_duration - 2.0, 30.0), value=0.0, step=0.5, label_visibility="collapsed")
         
-        # 11-variant digital manifest mapping
         stimuli_manifest = [
             {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
             {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
@@ -240,10 +253,9 @@ with st.container(border=True):
             {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
         ]
 
-        # Thin electronic VU/Soundwave signal indicator strip
         st.markdown("""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
-                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ MATRIX LOCKED // OUTPUT CHANNELS FULLY ENERGISED</span>
+                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ MATRIX LOCKED // MEMORY GATES ACTIVE FOR INTERACTION</span>
                 <div style="display: flex; align-items: flex-end; height: 14px; gap: 2px;">
                     <div style="width: 3px; height: 4px; background: #22c55e; animation: pulse 0.4s infinite alternate;"></div>
                     <div style="width: 3px; height: 12px; background: #22c55e; animation: pulse 0.2s infinite alternate 0.1s;"></div>
@@ -276,22 +288,22 @@ with st.container(border=True):
                 # Full Range
                 processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
                 if not isinstance(active_target, str): active_target.seek(0)
-                st.audio(processed_buffer, format="audio/wav")
-                st.download_button("🎛️ FULL-RANGE FLAT", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
+                render_audiometer_channel("🎛️ FULL-RANGE FLAT", processed_buffer, "full")
+                st.download_button("📥 Save Full-Range", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
                 
                 # Low Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                 processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
                 if not isinstance(active_target, str): active_target.seek(0)
-                st.audio(processed_buffer, format="audio/wav")
-                st.download_button("🎚️ LOW-PASS (≤1000 Hz)", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
+                render_audiometer_channel("🎚️ LOW-PASS (≤1000 Hz)", processed_buffer, "lp")
+                st.download_button("📥 Save Low-Pass", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
                 
                 # High Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                 processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
                 if not isinstance(active_target, str): active_target.seek(0)
-                st.audio(processed_buffer, format="audio/wav")
-                st.download_button("🎚️ HIGH-PASS (>1000 Hz)", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
+                render_audiometer_channel("🎚️ HIGH-PASS (>1000 Hz)", processed_buffer, "hp")
+                st.download_button("📥 Save High-Pass", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
 
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-top: 12px;'>[PANEL B] MASTER BATCH</div>", unsafe_allow_html=True)
             with st.container(border=True):
@@ -317,8 +329,8 @@ with st.container(border=True):
                     freq_lbl = item["suffix"].split('_')[0]
                     processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    st.audio(processed_buffer, format="audio/wav")
-                    st.download_button(f"🔊 FREQ {freq_lbl.upper()} // NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"nbn_{freq_lbl}")
+                    render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}")
+                    st.download_button(f"📥 Save {freq_lbl} NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"dl_nbn_{freq_lbl}")
 
         # --- COLUMN 3: CHANNEL 2 — HIGH-SPECIFICITY BANK (FRESH) ---
         with right_col:
@@ -331,8 +343,8 @@ with st.container(border=True):
                     freq_lbl = item["suffix"].split('_')[0]
                     processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     if not isinstance(active_target, str): active_target.seek(0)
-                    st.audio(processed_buffer, format="audio/wav")
-                    st.download_button(f"⚡ FREQ {freq_lbl.upper()} // FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"fresh_{freq_lbl}")
+                    render_audiometer_channel(f"⚡ FREQ {freq_lbl.upper()} // FRESH", processed_buffer, f"fresh_{freq_lbl}")
+                    st.download_button(f"📥 Save {freq_lbl} FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"dl_fresh_{freq_lbl}")
 
 # Tiny layout buffer line at the bottom
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
