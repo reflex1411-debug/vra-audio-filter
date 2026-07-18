@@ -256,32 +256,36 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
                 const bars = document.querySelectorAll('.vu_bar_{element_key}');
                 let audioCtx, analyser, dataArray, source;
                 
-                audio.addEventListener('play', () => {{
+                audio.addEventListener('play', async () => {{
                     if (!audioCtx) {{
                         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        await audioCtx.resume(); // Ensure context is running
                         analyser = audioCtx.createAnalyser();
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
                         analyser.fftSize = 64; 
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    }} else if (audioCtx.state === 'suspended') {{
+                        await audioCtx.resume();
                     }}
+                    
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
                             bars.forEach((bar, i) => {{
-                                // Linear mapping of bins to bars with inertia decay
-                                const val = (dataArray[i] || 0) / 255.0;
+                                // Normalize for high energy
+                                const val = (dataArray[i] || 0) / 200.0; 
                                 const currentH = parseFloat(bar.style.height);
-                                const targetH = 10 + (val * 85);
-                                bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
+                                const targetH = 10 + (val * 90);
+                                bar.style.height = (currentH + (targetH - currentH) * 0.3) + "%";
                                 bar.style.opacity = 0.3 + (val * 0.7);
                             }});
                             requestAnimationFrame(update);
                         }}
                     }}
                     update();
-                }}, {{once: true}});
+                }});
             }})();
         </script>
     </div>
