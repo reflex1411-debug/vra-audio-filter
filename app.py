@@ -1,11 +1,11 @@
 import streamlit as st
 import numpy as np
 import soundfile as sf
-from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
 import zipfile
 import os
+import base64
 
 # Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
@@ -309,7 +309,7 @@ with st.container(border=True):
             {"label": "2000Hz FRESH", "low": 1800, "high": 2200, "type": "band", "suffix": "2000Hz_FRESH", "order": 20},
             {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
         ]
-        
+
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
         if "LIVE LINE-IN" in ui_mode:
             left_col, center_col, right_col = st.columns(3)
@@ -355,10 +355,9 @@ with st.container(border=True):
                         render_audiometer_channel(f"🔊 FREQ {freq_lbl.upper()} // NBN", processed_buffer, f"nbn_{freq_lbl}", preroll_offset)
 
             with right_col:
-                # We simply don't render the FRESH bank columns if we are in LIVE mode.
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK // DISABLED IN LIVE</div>", unsafe_allow_html=True)
+                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK // HIDDEN</div>", unsafe_allow_html=True)
                 with st.container(border=True):
-                    st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #64748b;'>FRESH Banks are restricted to Batch Export only.</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-family: monospace; font-size: 0.75rem; color: #64748b;'>FRESH Stimuli Bank restricted to Bulk Export mode.</div>", unsafe_allow_html=True)
 
         # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
         else:
