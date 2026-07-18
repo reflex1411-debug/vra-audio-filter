@@ -5,6 +5,7 @@ from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
 import zipfile
+import os
 
 # Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
@@ -13,6 +14,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Ensure local persistence folder exists for storing library files
+LIBRARY_DIR = "library"
+if not os.path.exists(LIBRARY_DIR):
+    os.makedirs(LIBRARY_DIR)
+
+# Initialize system memory cache for tracking current loaded session tracks
+if "session_tracks" not in st.session_state:
+    st.session_state.session_tracks = {}
 
 # Custom Audiometer Structural Frame & LED Header CSS Injection
 st.markdown("""
@@ -92,10 +102,18 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
         
     return normalized_data
 
-def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
-    file_bytes = uploaded_file.read()
+def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
+    # Handles both binary stream uploads and local server files smoothly
+    if isinstance(file_source, str):
+        with open(file_source, 'rb') as f:
+            file_bytes = f.read()
+        is_mp3 = file_source.lower().endswith('.mp3')
+    else:
+        file_bytes = file_source.read()
+        is_mp3 = file_source.name.lower().endswith('.mp3')
+        file_source.seek(0)
     
-    if uploaded_file.name.lower().endswith('.mp3'):
+    if is_mp3:
         audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3")
         audio = audio.set_frame_rate(44100).set_channels(1)
         fs = audio.frame_rate
@@ -138,25 +156,70 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='
 
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
-    st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[INPUT ROUTING] SELECT AUDIO SOURCE</div>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("", type=["mp3", "wav"], label_visibility="collapsed")
-
-    if uploaded_file is not None:
-        base_name = uploaded_file.name.rsplit('.', 1)[0]
+    
+    # Structural Layout Split: Dropdown Library Menu vs. Add New Upload Port
+    top_col1, top_col2 = st.columns([2, 1])
+    
+    with top_col1:
+        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[AUDIO STIMULI BANK] SELECT ACTIVE TRACK</div>", unsafe_allow_html=True)
+        # Scan local repository directory for stored tracks
+        stored_files = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))]
+        all_options = ["-- Select Track from Bank --"] + stored_files + list(st.session_state.session_tracks.keys())
+        selected_track_name = st.selectbox("", options=all_options, label_visibility="collapsed")
         
+    with top_col2:
+        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[PORT PORTAL] IMPORT NEW FILE TO BANK</div>", unsafe_allow_html=True)
+        new_upload = st.file_uploader("", type=["mp3", "wav"], label_visibility="collapsed", key="uploader_portal")
+        
+        if new_upload is not None:
+            # Check if it's already recorded to prevent duplicate loop re-execution overrides
+            if new_upload.name not in st.session_state.session_tracks:
+                # Store stream object locally inside system memory session state
+                st.session_state.session_tracks[new_upload.name] = new_upload.read()
+                st.rerun()
+
+    # Establish the true active target path block based on menu selection
+    active_target = None
+    base_name = ""
+    
+    if selected_track_name and selected_track_name != "-- Select Track from Bank --":
+        if selected_track_name in stored_files:
+            active_target = os.path.join(LIBRARY_DIR, selected_track_name)
+            base_name = selected_track_name.rsplit('.', 1)[0]
+        else:
+            # Pull directly out of cached binary session storage
+            active_target = io.BytesIO(st.session_state.session_tracks[selected_track_name])
+            # Emulate file name structures to pass type detection assertions smoothly
+            class NamedBytesIO(io.BytesIO):
+                def __init__(self, buffer, name):
+                    super().__init__(buffer)
+                    self.name = name
+            active_target = NamedBytesIO(st.session_state.session_tracks[selected_track_name], selected_track_name)
+            base_name = selected_track_name.rsplit('.', 1)[0]
+
+    if active_target is not None:
         # Determine track length to scale the slider limits dynamically
         try:
-            temp_bytes = uploaded_file.read()
-            if uploaded_file.name.lower().endswith('.mp3'):
-                temp_audio = AudioSegment.from_file(io.BytesIO(temp_bytes), format="mp3")
-                total_duration = len(temp_audio) / 1000.0
+            if isinstance(active_target, str):
+                if active_target.lower().endswith('.mp3'):
+                    temp_audio = AudioSegment.from_file(active_target, format="mp3")
+                    total_duration = len(temp_audio) / 1000.0
+                else:
+                    temp_data, temp_fs = sf.read(active_target)
+                    total_duration = len(temp_data) / float(temp_fs)
             else:
-                temp_data, temp_fs = sf.read(io.BytesIO(temp_bytes))
-                total_duration = len(temp_data) / float(temp_fs)
-            uploaded_file.seek(0)
+                active_target.seek(0)
+                file_bytes = active_target.read()
+                if active_target.name.lower().endswith('.mp3'):
+                    temp_audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3")
+                    total_duration = len(temp_audio) / 1000.0
+                else:
+                    temp_data, temp_fs = sf.read(io.BytesIO(file_bytes))
+                    total_duration = len(temp_data) / float(temp_fs)
+                active_target.seek(0)
         except:
-            total_duration = 60.0 # Standard fallback
-            uploaded_file.seek(0)
+            total_duration = 60.0
+            if not isinstance(active_target, str): active_target.seek(0)
 
         # Hardware Attenuation Style Gate Slider
         st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
@@ -180,7 +243,7 @@ with st.container(border=True):
         # Thin electronic VU/Soundwave signal indicator strip
         st.markdown("""
             <div style="background: #020617; border-radius: 4px; padding: 6px 12px; margin: 10px 0px 20px 0px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #1e293b;">
-                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ TRACK ANALYSED // CH1 CALIBRATION LOCKED</span>
+                <span style="color: #22c55e; font-weight: bold; font-size: 0.75rem; font-family: monospace; letter-spacing: 0.5px;">✓ MATRIX LOCKED // OUTPUT CHANNELS FULLY ENERGISED</span>
                 <div style="display: flex; align-items: flex-end; height: 14px; gap: 2px;">
                     <div style="width: 3px; height: 4px; background: #22c55e; animation: pulse 0.4s infinite alternate;"></div>
                     <div style="width: 3px; height: 12px; background: #22c55e; animation: pulse 0.2s infinite alternate 0.1s;"></div>
@@ -211,22 +274,22 @@ with st.container(border=True):
                 st.markdown("<hr style='margin: 8px 0; border-color: #334155;' />", unsafe_allow_html=True)
 
                 # Full Range
-                processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8, trim_seconds)
-                uploaded_file.seek(0)
+                processed_buffer = process_audio_buffer(active_target, None, None, 'raw', 8, trim_seconds)
+                if not isinstance(active_target, str): active_target.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎛️ FULL-RANGE FLAT", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
                 
                 # Low Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low', 8, trim_seconds)
-                uploaded_file.seek(0)
+                processed_buffer = process_audio_buffer(active_target, None, 1000, 'low', 8, trim_seconds)
+                if not isinstance(active_target, str): active_target.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ LOW-PASS (≤1000 Hz)", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
                 
                 # High Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high', 8, trim_seconds)
-                uploaded_file.seek(0)
+                processed_buffer = process_audio_buffer(active_target, 1000, None, 'high', 8, trim_seconds)
+                if not isinstance(active_target, str): active_target.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ HIGH-PASS (>1000 Hz)", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
 
@@ -236,8 +299,8 @@ with st.container(border=True):
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                         for item in stimuli_manifest:
-                            track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                            uploaded_file.seek(0)
+                            track_data = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                            if not isinstance(active_target, str): active_target.seek(0)
                             zip_file.writestr(f"{base_name}_{item['suffix']}.wav", track_data.getvalue())
                     zip_buffer.seek(0)
                     
@@ -252,8 +315,8 @@ with st.container(border=True):
                     if idx > 0:
                         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                    uploaded_file.seek(0)
+                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                    if not isinstance(active_target, str): active_target.seek(0)
                     st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"🔊 FREQ {freq_lbl.upper()} // NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"nbn_{freq_lbl}")
 
@@ -266,8 +329,8 @@ with st.container(border=True):
                     if idx > 0:
                         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                    uploaded_file.seek(0)
+                    processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
+                    if not isinstance(active_target, str): active_target.seek(0)
                     st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"⚡ FREQ {freq_lbl.upper()} // FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"fresh_{freq_lbl}")
 
