@@ -231,7 +231,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     
     html_code = f"""
     <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
-        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 8px; letter-spacing: 0.5px;">{label}</div>
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         
         <!-- Hardware Signal VU Display Subsystem -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 36px;">
@@ -275,7 +275,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                             bar.style.opacity = val * 0.8 + 0.2;
                         }});
                         animId = requestAnimationFrame(animate);
-                    } else {{
+                    }} else {{
                         bars.forEach(function(bar) {{
                             bar.style.transform = "scaleY(0.25)";
                             bar.style.opacity = "0.2";
