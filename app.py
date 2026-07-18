@@ -92,7 +92,7 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
         
     return normalized_data
 
-def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='band', order=8):
+def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
     file_bytes = uploaded_file.read()
     
     if uploaded_file.name.lower().endswith('.mp3'):
@@ -103,6 +103,15 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='
         data = data / (2**15)
     else:
         data, fs = sf.read(io.BytesIO(file_bytes))
+        
+    # --- PHYSICAL SIGNAL GATE (TRIM INTRO) ---
+    if trim_seconds > 0:
+        start_sample = int(trim_seconds * fs)
+        if start_sample < len(data):
+            if len(data.shape) > 1:
+                data = data[start_sample:, :]
+            else:
+                data = data[start_sample:]
         
     if filter_type == 'raw':
         filtered_data = data
@@ -134,6 +143,24 @@ with st.container(border=True):
 
     if uploaded_file is not None:
         base_name = uploaded_file.name.rsplit('.', 1)[0]
+        
+        # Determine track length to scale the slider limits dynamically
+        try:
+            temp_bytes = uploaded_file.read()
+            if uploaded_file.name.lower().endswith('.mp3'):
+                temp_audio = AudioSegment.from_file(io.BytesIO(temp_bytes), format="mp3")
+                total_duration = len(temp_audio) / 1000.0
+            else:
+                temp_data, temp_fs = sf.read(io.BytesIO(temp_bytes))
+                total_duration = len(temp_data) / float(temp_fs)
+            uploaded_file.seek(0)
+        except:
+            total_duration = 60.0 # Standard fallback
+            uploaded_file.seek(0)
+
+        # Hardware Attenuation Style Gate Slider
+        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
+        trim_seconds = st.slider("", min_value=0.0, max_value=min(total_duration - 2.0, 30.0), value=0.0, step=0.5, label_visibility="collapsed")
         
         # 11-variant digital manifest mapping
         stimuli_manifest = [
@@ -172,21 +199,21 @@ with st.container(border=True):
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
             with st.container(border=True):
                 # Full Range
-                processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8)
+                processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8, trim_seconds)
                 uploaded_file.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎛️ FULL-RANGE FLAT", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
                 
                 # Low Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low', 8)
+                processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low', 8, trim_seconds)
                 uploaded_file.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ LOW-PASS (≤1000 Hz)", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
                 
                 # High Pass
                 st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-                processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high', 8)
+                processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high', 8, trim_seconds)
                 uploaded_file.seek(0)
                 st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ HIGH-PASS (>1000 Hz)", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
@@ -197,7 +224,7 @@ with st.container(border=True):
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                         for item in stimuli_manifest:
-                            track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                            track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                             uploaded_file.seek(0)
                             zip_file.writestr(f"{base_name}_{item['suffix']}.wav", track_data.getvalue())
                     zip_buffer.seek(0)
@@ -213,7 +240,7 @@ with st.container(border=True):
                     if idx > 0:
                         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     uploaded_file.seek(0)
                     st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"🔊 FREQ {freq_lbl.upper()} // NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"nbn_{freq_lbl}")
@@ -227,7 +254,7 @@ with st.container(border=True):
                     if idx > 0:
                         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
-                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
+                    processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                     uploaded_file.seek(0)
                     st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"⚡ FREQ {freq_lbl.upper()} // FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"fresh_{freq_lbl}")
