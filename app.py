@@ -403,10 +403,16 @@ with st.container(border=True):
             
             with dl_col2:
                 st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[INDIVIDUAL SELECTION] EXTRACT SPECIFIC MANIFEST ARTIFACTS</div>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    for item in stimuli_manifest:
-                        processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
-                        if not isinstance(active_target, str): active_target.seek(0)
+
+tab1, tab2 = st.tabs(["🎛️ LIVE PRESENTATION DESK", "📦 BATCH EXPORT & FILE DOWNLOAD CENTER"])
+
+with tab1:
+    # --- PASTE YOUR "LIVE LINE-IN" CHANNEL RENDERING LOGIC HERE ---
+    # Everything currently under: if "LIVE LINE-IN" in ui_mode:
+    
+with tab2:
+    # --- PASTE YOUR "BATCH EXPORT" RENDERING LOGIC HERE ---
+    # Everything currently under: else: (the download manifest section)
                         
                         btn_col1, btn_col2 = st.columns([3, 1])
                         with btn_col1:
