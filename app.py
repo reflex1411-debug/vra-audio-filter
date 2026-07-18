@@ -6,20 +6,25 @@ from pydub import AudioSegment
 import io
 import zipfile
 import os
+import sqlite3
 
-# Set wide layout to establish a comprehensive dual-channel audiometer faceplate
-st.set_page_config(
-    page_title="Neilio's VRA Toolkit", 
-    page_icon="🎧", 
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# Initialize Database
+def get_db():
+    conn = sqlite3.connect("vra_toolkit.db", check_same_thread=False)
+    conn.execute('CREATE TABLE IF NOT EXISTS library_files (name TEXT PRIMARY KEY, blob BLOB)')
+    conn.execute('CREATE TABLE IF NOT EXISTS favorites (name TEXT PRIMARY KEY)')
+    return conn
 
-# Ensure local persistence folder exists for storing library files
-LIBRARY_DIR = "library"
-if not os.path.exists(LIBRARY_DIR):
-    os.makedirs(LIBRARY_DIR)
+db = get_db()
 
+# Load state from Database
+if "session_tracks" not in st.session_state:
+    files = db.execute("SELECT name, blob FROM library_files").fetchall()
+    st.session_state.session_tracks = {name: blob for name, blob in files}
+
+if "favorites" not in st.session_state:
+    favs = db.execute("SELECT name FROM favorites").fetchall()
+    st.session_state.favorites = [row[0] for row in favs]
 # Initialize system memory cache for tracking current loaded session tracks
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
