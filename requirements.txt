@@ -4,3 +4,4 @@ scipy
 pydub
 soundfile
 streamlit-local-storage
+audioop-lts
