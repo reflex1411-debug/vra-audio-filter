@@ -24,8 +24,10 @@ st.set_page_config(
 # Initialize LocalStorage client for persisting user preferences across sessions
 local_storage = LocalStorage()
 
-# Ensure local persistence folder exists for storing library files
+# Define the library directory constant for file path references
 LIBRARY_DIR = "library"
+
+# Ensure local persistence folder exists for storing library files
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
@@ -40,7 +42,7 @@ if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
 # ==============================================================================
-# CSS & STYLE INJECTION
+# CSS & STYLE INJECTION (Verbose Formatting)
 # ==============================================================================
 
 st.markdown("""
@@ -99,11 +101,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# AUDIO PROCESSING ENGINE
+# AUDIO PROCESSING ENGINE (Expanded & Documented)
 # ==============================================================================
 
 def butter_filter_sos(cutoff_low, cutoff_high, fs, filter_type='band', order=8):
-    """Calculates Butterworth filter coefficients."""
+    """Calculates Butterworth filter coefficients for signal conditioning."""
     nyq = 0.5 * fs
     if filter_type == 'low':
         normal_cutoff = cutoff_high / nyq
@@ -118,11 +120,11 @@ def butter_filter_sos(cutoff_low, cutoff_high, fs, filter_type='band', order=8):
     return sos
 
 def calculate_rms(data):
-    """Calculates Root Mean Square of audio data."""
+    """Calculates Root Mean Square of audio data to determine energy levels."""
     return np.sqrt(np.mean(data**2))
 
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
-    """Normalizes audio to a target RMS level."""
+    """Normalizes audio to a target RMS level, ensuring clinical repeatability."""
     current_rms = calculate_rms(data)
     if current_rms == 0: return data
         
@@ -136,8 +138,19 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
         
     return normalized_data
 
+def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
+    """Generates a pure sine wave at 1000Hz for system calibration."""
+    t = np.linspace(0, duration, int(fs * duration), endpoint=False)
+    data = np.sin(2 * np.pi * freq * t).astype(np.float32)
+    data = rms_normalize(data, target_db=-20.0)
+    virtual_file = io.BytesIO()
+    sf.write(virtual_file, data, fs, format='WAV')
+    virtual_file.seek(0)
+    return virtual_file
+
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
-    """Loads, processes, filters, and normalizes audio buffers."""
+    """Loads, processes, filters, and normalizes audio buffers for output."""
+    # Data Ingestion Logic
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -146,6 +159,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
         is_mp3 = file_source.name.lower().endswith('.mp3')
         file_source.seek(0)
     
+    # Decoding Logic
     if is_mp3:
         audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3")
         audio = audio.set_frame_rate(44100).set_channels(1)
@@ -154,12 +168,14 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     else:
         data, fs = sf.read(io.BytesIO(file_bytes))
         
+    # Trimming Logic
     if trim_seconds > 0:
         start_sample = int(trim_seconds * fs)
         if start_sample < len(data):
             if len(data.shape) > 1: data = data[start_sample:, :]
             else: data = data[start_sample:]
         
+    # Filtering Logic
     if filter_type != 'raw':
         sos = butter_filter_sos(lowcut, highcut, fs, filter_type=filter_type, order=order)
         if len(data.shape) > 1:
@@ -171,12 +187,14 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     else:
         filtered_data = data
 
+    # Normalization Logic
     if len(filtered_data.shape) > 1:
         for channel in range(filtered_data.shape[1]):
             filtered_data[:, channel] = rms_normalize(filtered_data[:, channel], target_db=-20.0)
     else:
         filtered_data = rms_normalize(filtered_data, target_db=-20.0)
         
+    # Final Export
     virtual_file = io.BytesIO()
     sf.write(virtual_file, filtered_data, fs, format='WAV')
     virtual_file.seek(0)
@@ -204,11 +222,19 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     st.components.v1.html(html_code, height=165)
 
 # ==============================================================================
-# UI LOGIC & LAYOUT
+# UI LOGIC & LAYOUT (Restored Verbose Construction)
 # ==============================================================================
 
 with st.container(border=True):
     
+    # System Calibration Panel
+    with st.expander("🛠️ SYSTEM CALIBRATION & TRANSDUCER CHECK"):
+        st.write("Generate a 1kHz pure sine tone to calibrate your sound level meter or transducer output level.")
+        if st.button("🔊 GENERATE 1kHz CALIBRATION TONE (-20dBFS)"):
+            cal_buffer = generate_calibration_tone()
+            st.audio(cal_buffer, format="audio/wav")
+            st.success("Calibration tone active. Signal normalized to -20dBFS.")
+
     # Functional System Mode Toggle Strip
     st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #64748b; margin-bottom: 2px;'>[CONSOLE FUNCTION CONFIGURATION]</div>", unsafe_allow_html=True)
     ui_mode = st.radio(
@@ -242,7 +268,7 @@ with st.container(border=True):
         default_index = 0
         if "selected_track_override" in st.session_state and st.session_state.selected_track_override in all_tracks_list:
             default_index = all_tracks_list.index(st.session_state.selected_track_override) + 1
-            del st.session_state.selected_track_override
+            # Note: We do not delete here to allow the UI to re-select on the rerun
             
         dropdown_options = ["-- Select Track from Bank --"] + all_tracks_list
         selected_track_name = st.selectbox("", options=dropdown_options, index=default_index, label_visibility="collapsed", key="master_bank_dropdown")
@@ -320,11 +346,7 @@ with st.container(border=True):
             {"label": "500Hz Original NBN", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_NBN", "order": 8},
             {"label": "1000Hz Original NBN", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_NBN", "order": 8},
             {"label": "2000Hz Original NBN", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_NBN", "order": 8},
-            {"label": "4000Hz Original NBN", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN", "order": 8},
-            {"label": "500Hz FRESH", "low": 450, "high": 550, "type": "band", "suffix": "500Hz_FRESH", "order": 20},
-            {"label": "1000Hz FRESH", "low": 900, "high": 1100, "type": "band", "suffix": "1000Hz_FRESH", "order": 20},
-            {"label": "2000Hz FRESH", "low": 1800, "high": 2200, "type": "band", "suffix": "2000Hz_FRESH", "order": 20},
-            {"label": "4000Hz FRESH", "low": 3600, "high": 4400, "type": "band", "suffix": "4000Hz_FRESH", "order": 20}
+            {"label": "4000Hz Original NBN", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN", "order": 8}
         ]
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
@@ -332,7 +354,7 @@ with st.container(border=True):
             st.markdown("<br><div style='font-family: monospace; font-size: 0.9rem; color: #94a3b8; font-weight: bold;'>[ROW 1] BROADBAND & FILTERS</div>", unsafe_allow_html=True)
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             
-            broadband_items = [i for i in stimuli_manifest if "FRESH" not in i["label"] and "NBN" not in i["label"]]
+            broadband_items = [i for i in stimuli_manifest if "NBN" not in i["label"]]
             for i, item in enumerate(broadband_items):
                 col = [r1_c1, r1_c2, r1_c3][i]
                 with col:
@@ -361,7 +383,7 @@ with st.container(border=True):
             with dl_col1:
                 st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[BATCH UTILITY] PACK COMPLETE MATRICES</div>", unsafe_allow_html=True)
                 with st.container(border=True):
-                    st.caption("Bundles all 11 processed, gated, and RMS-normalized variants into one zip file.")
+                    st.caption("Bundles all processed, gated, and RMS-normalized variants into one zip file.")
                     with st.spinner("Compiling compressed archive..."):
                         zip_buffer = io.BytesIO()
                         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
