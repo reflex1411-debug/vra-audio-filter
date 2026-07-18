@@ -34,6 +34,8 @@ def to_wav_buffer(data, sr):
 # ------------------------------------------------------------
 
 def render_audiometer_channel(label, audio_buffer, element_key):
+    import streamlit as st
+
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
 
@@ -68,6 +70,38 @@ def render_audiometer_channel(label, audio_buffer, element_key):
         "FRESH": f"<svg width='100%' height='40'><rect x='0' y='18' width='100%' height='4' fill='{border_color}'/></svg>",
     }
     spectrum_svg = SPECTRUM.get(label, "")
+
+    spectrum_anim = f"""
+        <div id="anim_{element_key}" style="
+            height: 24px;
+            width: 100%;
+            display: flex;
+            gap: 3px;
+            margin-top: 4px;
+            margin-bottom: 10px;
+        ">
+            <div class="bar" style="flex:1; background:{border_color}; opacity:0.4;"></div>
+            <div class="bar" style="flex:1; background:{border_color}; opacity:0.4;"></div>
+            <div class="bar" style="flex:1; background:{border_color}; opacity:0.4;"></div>
+            <div class="bar" style="flex:1; background:{border_color}; opacity:0.4;"></div>
+            <div class="bar" style="flex:1; background:{border_color}; opacity:0.4;"></div>
+        </div>
+
+        <style>
+            @keyframes pulse_{element_key} {{
+                0% {{ transform: scaleY(0.3); }}
+                50% {{ transform: scaleY(1.0); }}
+                100% {{ transform: scaleY(0.3); }}
+            }}
+            #anim_{element_key} .bar {{
+                transform-origin: bottom;
+                animation: pulse_{element_key} 0.8s ease-in-out infinite;
+            }}
+            #anim_{element_key}.paused .bar {{
+                animation-play-state: paused;
+            }}
+        </style>
+    """
 
     freq_badge = f"""
         <span style="
@@ -111,29 +145,86 @@ def render_audiometer_channel(label, audio_buffer, element_key):
 
         <div style="margin-bottom:8px;">
             {spectrum_svg}
+            {spectrum_anim}
         </div>
 
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
+
+        <div style="display:flex; gap:8px; margin-top:8px;">
+            <button onclick="
+                document.getElementById('audio_{element_key}').play();
+                document.getElementById('anim_{element_key}').classList.remove('paused');
+            "
+                style="
+                    flex:1;
+                    background-color:#10b981;
+                    color:white;
+                    border:none;
+                    padding:8px;
+                    border-radius:4px;
+                    font-family:monospace;
+                    font-size:0.75rem;
+                    cursor:pointer;
+                ">
+                ▶ PLAY
+            </button>
+
+            <button onclick="
+                document.getElementById('audio_{element_key}').pause();
+                document.getElementById('anim_{element_key}').classList.add('paused');
+            "
+                style="
+                    flex:1;
+                    background-color:#ef4444;
+                    color:white;
+                    border:none;
+                    padding:8px;
+                    border-radius:4px;
+                    font-family:monospace;
+                    font-size:0.75rem;
+                    cursor:pointer;
+                ">
+                ⏸ PAUSE
+            </button>
+        </div>
     </div>
     """
 
-    st.components.v1.html(html_code, height=220)
+    st.components.v1.html(html_code, height=260)
 
 # ------------------------------------------------------------
 # MAIN APP
 # ------------------------------------------------------------
 
 st.title("Clinical Music Filter Tool")
-st.write("Upload a WAV file to generate filtered versions for clinical listening.")
+st.write("Upload a WAV or MP3 file to generate filtered versions for clinical listening.")
 
-uploaded = st.file_uploader("Upload WAV file", type=["wav"])
+uploaded = st.file_uploader("Upload audio file", type=["wav", "mp3"])
 
 if uploaded:
     import soundfile as sf
-    data, sr = sf.read(uploaded)
+    from pydub import AudioSegment
 
-    if data.ndim > 1:
-        data = data[:, 0]  # convert to mono
+    file_bytes = uploaded.read()
+
+    if uploaded.type == "audio/mpeg":  # MP3
+        audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3")
+        sr = audio.frame_rate
+        samples = np.array(audio.get_array_of_samples()).astype(np.float32)
+
+        if audio.channels > 1:
+            samples = samples.reshape((-1, audio.channels))
+            data = samples[:, 0]
+        else:
+            data = samples
+
+        max_val = np.iinfo(audio.array_type).max
+        data = data / max_val
+
+    else:  # WAV
+        data, sr = sf.read(io.BytesIO(file_bytes))
+        if data.ndim > 1:
+            data = data[:, 0]
 
     fresh_buf = to_wav_buffer(data, sr)
     lp_buf = to_wav_buffer(low_pass_filter(data, sr), sr)
