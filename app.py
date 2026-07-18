@@ -316,7 +316,7 @@ with st.container(border=True):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             
             # Row 1: Full-Range, Low-Pass, High-Pass
-            broadband_items = [i for i in stimuli_manifest if "Full-Range" in i["label"] or "Low-Pass" in i["label"] or "High-Pass" in i["label"]]
+            broadband_items = [i for i in stimuli_manifest if "FRESH" not in i["label"] and "NBN" not in i["label"]]
             for i, item in enumerate(broadband_items):
                 col = [r1_c1, r1_c2, r1_c3][i]
                 with col:
@@ -324,7 +324,8 @@ with st.container(border=True):
                     if not isinstance(active_target, str): active_target.seek(0)
                     render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
-            st.markdown("<br><div style='font-family: monospace; font-size: 0.9rem; color: #94a3b8; font-weight: bold;'>[ROW 2] NBN FILTERED BANDS</div>", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; font-weight: bold;'>[ROW 2] NBN BAND ANALYSIS (500Hz - 4kHz)</div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             
             # Row 2: 500, 1000, 2000, 4000Hz NBN
