@@ -4,6 +4,7 @@ import soundfile as sf
 from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
+import zipfile
 
 # Set up a modern, polished page config
 st.set_page_config(
@@ -21,12 +22,20 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Core Filtering & Compression Functions
-def butter_bandpass_sos(lowcut, highcut, fs, order=8):
+# Advanced Filtering Engine
+def butter_filter_sos(cutoff_low, cutoff_high, fs, filter_type='band', order=8):
     nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    return butter(order, [low, high], btype='band', output='sos')
+    if filter_type == 'low':
+        normal_cutoff = cutoff_high / nyq
+        sos = butter(order, normal_cutoff, btype='low', output='sos')
+    elif filter_type == 'high':
+        normal_cutoff = cutoff_low / nyq
+        sos = butter(order, normal_cutoff, btype='high', output='sos')
+    else:
+        low = cutoff_low / nyq
+        high = cutoff_high / nyq
+        sos = butter(order, [low, high], btype='band', output='sos')
+    return sos
 
 def compress_and_flatten(data, threshold=0.05, ratio=10.0):
     abs_data = np.abs(data)
@@ -39,7 +48,7 @@ def compress_and_flatten(data, threshold=0.05, ratio=10.0):
         compressed_data = compressed_data / max_val
     return compressed_data
 
-def process_audio_buffer(uploaded_file, lowcut=None, highcut=None):
+def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='band'):
     file_bytes = uploaded_file.read()
     
     if uploaded_file.name.lower().endswith('.mp3'):
@@ -51,23 +60,23 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None):
     else:
         data, fs = sf.read(io.BytesIO(file_bytes))
         
-    if lowcut and highcut:
-        sos = butter_bandpass_sos(lowcut, highcut, fs, order=8)
+    if filter_type == 'raw':
+        filtered_data = data
+    else:
+        sos = butter_filter_sos(lowcut, highcut, fs, filter_type=filter_type, order=8)
         if len(data.shape) > 1:
             filtered_data = np.zeros_like(data)
             for channel in range(data.shape[1]):
                 audio_band = sosfilt(sos, data[:, channel])
-                filtered_data[:, channel] = compress_and_flatten(audio_band)
+                filtered_data[:, channel] = audio_band
         else:
-            audio_band = sosfilt(sos, data)
-            filtered_data = compress_and_flatten(audio_band)
+            filtered_data = sosfilt(sos, data)
+
+    if len(filtered_data.shape) > 1:
+        for channel in range(filtered_data.shape[1]):
+            filtered_data[:, channel] = compress_and_flatten(filtered_data[:, channel])
     else:
-        if len(data.shape) > 1:
-            filtered_data = np.zeros_like(data)
-            for channel in range(data.shape[1]):
-                filtered_data[:, channel] = compress_and_flatten(data[:, channel])
-        else:
-            filtered_data = compress_and_flatten(data)
+        filtered_data = compress_and_flatten(filtered_data)
         
     virtual_file = io.BytesIO()
     sf.write(virtual_file, filtered_data, fs, format='WAV')
@@ -80,57 +89,119 @@ with st.container():
 
 if uploaded_file is not None:
     st.markdown("---")
-    st.subheader("🎵 Available Clinical Stimuli")
-    st.caption(f"Loaded source track: {uploaded_file.name}")
+    base_name = uploaded_file.name.rsplit('.', 1)[0]
     
-    # 1. Full-Range Conditioned Option gets its own prominent card at the top
+    # Pre-configure all required audio variant settings
+    stimuli_manifest = [
+        {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range"},
+        {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz"},
+        {"label": "High-Pass (>1000 Hz)", "low": 1000, "high": None, "type": "high", "suffix": "HighPass_1kHz"},
+        {"label": "500Hz Narrowband", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_NBN"},
+        {"label": "1000Hz Narrowband", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_NBN"},
+        {"label": "2000Hz Narrowband", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_NBN"},
+        {"label": "4000Hz Narrowband", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN"}
+    ]
+
+    # --- TOP LEVEL: BULK DOWNLOAD ZIP BUTTON ---
+    st.subheader("📦 Bulk Actions")
+    with st.container(border=True):
+        st.markdown("Compile all 7 configurations into a single compressed folder.")
+        
+        with st.spinner("Building ZIP package in memory..."):
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                for item in stimuli_manifest:
+                    # Generate the file content
+                    track_data = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"])
+                    uploaded_file.seek(0)
+                    # Add to zip package
+                    filename = f"{base_name}_{item['suffix']}.wav"
+                    zip_file.writestr(filename, track_data.getvalue())
+            
+            zip_buffer.seek(0)
+            
+            st.download_button(
+                label="📦 Download All Tracks (.ZIP)",
+                data=zip_buffer,
+                file_name=f"{base_name}_VRA_Complete_Set.zip",
+                mime="application/zip",
+                use_container_width=True,
+                type="primary" # Makes this button stand out in Streamlit accent color
+            )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🎵 Individual Track Downloads")
+    st.caption(f"Source track: {uploaded_file.name}")
+    
+    # 1. Full-Range Baseline Row
     with st.container(border=True):
         st.markdown("**Conditioning & Baseline Track**")
-        processed_buffer = process_audio_buffer(uploaded_file, None, None)
+        processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw')
         uploaded_file.seek(0)
-        
         st.download_button(
             label="📥 Download Full-Range (Flattened Original)",
             data=processed_buffer,
-            file_name=f"{uploaded_file.name.rsplit('.', 1)[0]}_Full-Range.wav",
+            file_name=f"{base_name}_Full-Range.wav",
             mime="audio/wav",
             use_container_width=True
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Narrow Band Frequencies**")
+    
+    # 2. Broad Spectrum Splits Row
+    st.markdown("**Broad Spectrum Splits**")
+    col_lp, col_hp = st.columns(2)
+    with col_lp:
+        with st.container(border=True):
+            st.markdown("### Low-Pass (≤1000 Hz)")
+            processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low')
+            uploaded_file.seek(0)
+            st.download_button(
+                label="📥 Download Low-Pass",
+                data=processed_buffer,
+                file_name=f"{base_name}_LowPass_1kHz.wav",
+                mime="audio/wav",
+                use_container_width=True
+            )
+    with col_hp:
+        with st.container(border=True):
+            st.markdown("### High-Pass (>1000 Hz)")
+            processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high')
+            uploaded_file.seek(0)
+            st.download_button(
+                label="📥 Download High-Pass",
+                data=processed_buffer,
+                file_name=f"{base_name}_HighPass_1kHz.wav",
+                mime="audio/wav",
+                use_container_width=True
+            )
 
-    # 2. Narrow Bands organized into a clean 2x2 grid layout
-    bands = {
-        "500Hz": ((420, 595), "Bass Tracking"),
-        "1000Hz": ((841, 1189), "Core Speech"),
-        "2000Hz": ((1682, 2378), "Consonants"),
-        "4000Hz": ((3364, 4757), "High Whistle")
-    }
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    base_name = uploaded_file.name.rsplit('.', 1)[0]
-    
-    # Generate 2 columns to break up the vertical stack
+    # 3. Individual Narrow Bands Grid
+    st.markdown("**Narrow Band Frequencies**")
     col1, col2 = st.columns(2)
     
-    for idx, (band_name, ((low, high), description)) in enumerate(bands.items()):
-        # Alternate items between left (col1) and right (col2) columns
+    # Filter manifest down to just the 4 narrow bands for individual UI cards
+    nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
+    
+    for idx, item in enumerate(nbn_items):
         target_col = col1 if idx % 2 == 0 else col2
-        
         with target_col:
             with st.container(border=True):
-                st.markdown(f"### {band_name}")
-                st.caption(description)
+                band_title = item["suffix"].split('_')[0]
+                st.markdown(f"### {band_title}")
+                st.caption(item["label"])
                 
-                processed_buffer = process_audio_buffer(uploaded_file, low, high)
+                processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"])
                 uploaded_file.seek(0)
                 
                 st.download_button(
-                    label=f"📥 Download {band_name}",
+                    label=f"📥 Download {band_title}",
                     data=processed_buffer,
-                    file_name=f"{base_name}_{band_name}_NBN.wav",
+                    file_name=f"{base_name}_{item['suffix']}.wav",
                     mime="audio/wav",
-                    key=f"btn_{band_name}",
+                    key=f"btn_{band_title}",
                     use_container_width=True
                 )
                 
