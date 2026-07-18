@@ -26,6 +26,12 @@ st.markdown("""
             padding-top: 1.5rem !important;
             padding-bottom: 1rem !important;
         }
+        /* Make internal media players ultra-compact to match instrument aesthetic */
+        audio {
+            height: 32px !important;
+            margin-bottom: 8px !important;
+            margin-top: 2px !important;
+        }
     </style>
     
     <!-- Faceplate Main Header -->
@@ -123,7 +129,6 @@ def process_audio_buffer(uploaded_file, lowcut=None, highcut=None, filter_type='
 
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
-    # File Input Area styled as a peripheral input port
     st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[INPUT ROUTING] SELECT AUDIO SOURCE</div>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("", type=["mp3", "wav"], label_visibility="collapsed")
 
@@ -166,16 +171,24 @@ with st.container(border=True):
         with left_col:
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
             with st.container(border=True):
+                # Full Range
                 processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8)
                 uploaded_file.seek(0)
+                st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎛️ FULL-RANGE FLAT", data=processed_buffer, file_name=f"{base_name}_Full-Range.wav", mime="audio/wav", use_container_width=True)
                 
+                # Low Pass
+                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                 processed_buffer = process_audio_buffer(uploaded_file, None, 1000, 'low', 8)
                 uploaded_file.seek(0)
+                st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ LOW-PASS (≤1000 Hz)", data=processed_buffer, file_name=f"{base_name}_LowPass_1kHz.wav", mime="audio/wav", use_container_width=True)
                 
+                # High Pass
+                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                 processed_buffer = process_audio_buffer(uploaded_file, 1000, None, 'high', 8)
                 uploaded_file.seek(0)
+                st.audio(processed_buffer, format="audio/wav")
                 st.download_button("🎚️ HIGH-PASS (>1000 Hz)", data=processed_buffer, file_name=f"{base_name}_HighPass_1kHz.wav", mime="audio/wav", use_container_width=True)
 
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-top: 12px;'>[PANEL B] MASTER BATCH</div>", unsafe_allow_html=True)
@@ -196,10 +209,13 @@ with st.container(border=True):
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 1] STANDARD NBN BANK</div>", unsafe_allow_html=True)
             with st.container(border=True):
                 nbn_items = [item for item in stimuli_manifest if "NBN" in item["suffix"]]
-                for item in nbn_items:
+                for idx, item in enumerate(nbn_items):
+                    if idx > 0:
+                        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
                     processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
                     uploaded_file.seek(0)
+                    st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"🔊 FREQ {freq_lbl.upper()} // NBN", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"nbn_{freq_lbl}")
 
         # --- COLUMN 3: CHANNEL 2 — HIGH-SPECIFICITY BANK (FRESH) ---
@@ -207,10 +223,13 @@ with st.container(border=True):
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[CHANNEL 2] FRESH STEEP BANK</div>", unsafe_allow_html=True)
             with st.container(border=True):
                 fresh_items = [item for item in stimuli_manifest if "FRESH" in item["suffix"]]
-                for item in fresh_items:
+                for idx, item in enumerate(fresh_items):
+                    if idx > 0:
+                        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                     freq_lbl = item["suffix"].split('_')[0]
                     processed_buffer = process_audio_buffer(uploaded_file, item["low"], item["high"], item["type"], item["order"])
                     uploaded_file.seek(0)
+                    st.audio(processed_buffer, format="audio/wav")
                     st.download_button(f"⚡ FREQ {freq_lbl.upper()} // FRESH", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"fresh_{freq_lbl}")
 
 # Tiny layout buffer line at the bottom
