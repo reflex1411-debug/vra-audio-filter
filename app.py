@@ -230,18 +230,18 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
-            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 25px 5px; border-radius: 8px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">▶️ PLAY / ⏸️ PAUSE</button>
-            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 25px 5px; border-radius: 8px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">▶️ PLAY / ⏸️ PAUSE</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
         </div>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 8px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
-            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 8px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
     </div>
     """
@@ -285,16 +285,6 @@ with st.container(border=True):
                     st.session_state.selected_track_override = fav_name
                     st.rerun()
         st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
-
-    # --- DYNAMIC SIGNAL MONITOR CONSOLE ---
-    # Fixed logic to display the actual selected file from the dropdown
-    selected_track_name = st.session_state.get("master_bank_dropdown", "-- Select Track from Bank --")
-    display_name = selected_track_name if selected_track_name != "-- Select Track from Bank --" else "NO SIGNAL SELECTED"
-    st.markdown(f"""
-        <div style="background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; margin-bottom: 20px; text-align: center; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 1.3rem; font-weight: bold; box-shadow: 0 0 15px rgba(56,189,248,0.2);">
-            ACTIVE SIGNAL: {display_name}
-        </div>
-    """, unsafe_allow_html=True)
 
     top_col1, top_col2 = st.columns([1, 1])
     
@@ -386,7 +376,6 @@ with st.container(border=True):
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
         if "LIVE LINE-IN" in ui_mode:
-            st.markdown("<br><div style='font-family: monospace; font-size: 1.1rem; color: #94a3b8; font-weight: bold;'>BROADBAND & FILTERS</div>", unsafe_allow_html=True)
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             
             broadband_items = [i for i in stimuli_manifest if "BPF" not in i["label"]]
@@ -397,9 +386,17 @@ with st.container(border=True):
                     if not isinstance(active_target, str): active_target.seek(0)
                     render_audiometer_channel(item["label"], processed_buffer, item["suffix"], preroll_offset)
 
+            # --- DYNAMIC SIGNAL MONITOR CONSOLE (Moved here) ---
+            selected_track_name = st.session_state.get("master_bank_dropdown", "-- Select Track from Bank --")
+            display_name = selected_track_name if selected_track_name != "-- Select Track from Bank --" else "NO SIGNAL SELECTED"
+            st.markdown(f"""
+                <div style="background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; margin: 15px 0; text-align: center; color: #38bdf8; font-family: 'Courier New', monospace; font-size: 1.3rem; font-weight: bold; box-shadow: 0 0 15px rgba(56,189,248,0.2);">
+                    ACTIVE SIGNAL: {display_name}
+                </div>
+            """, unsafe_allow_html=True)
+
             st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
-            st.markdown("<div style='font-family: monospace; font-size: 1.1rem; color: #fbbf24; font-weight: bold;'>BPF FILTERED BANDS (AUDIOGRAM SWEEP)</div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             
             nbn_items = [i for i in stimuli_manifest if "BPF" in i["label"]]
