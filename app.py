@@ -164,20 +164,21 @@ def render_audiometer_channel(label, audio_buffer, element_key):
     <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
         <div style="font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <audio id="audio_{element_key}" src="{audio_src}" controls></audio>
+        <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
-        <div style="display: flex; gap: 6px; margin-top: 4px;">
+        <div style="display: flex; gap: 6px; margin-top: 6px;">
             <button onclick="document.getElementById('audio_{element_key}').play()" style="flex: 1; background-color: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">▶ PLAY</button>
             <button onclick="document.getElementById('audio_{element_key}').pause()" style="flex: 1; background-color: #ef4444; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">⏸ PAUSE</button>
         </div>
         
         <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button onclick="window['loop_{element_key}'] = document.getElementById('audio_{element_key}').currentTime; this.innerHTML='⚙️ CAPTURED ' + window['loop_{element_key}'].toFixed(1) + 's'; setTimeout(()=>{{this.innerHTML='🔴 MARK INTEREST POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK INTEREST POINT</button>
-            <button onclick="if(window['loop_{element_key}'] !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window['loop_{element_key}']; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK & PLAY</button>
+            <button onclick="window['loop_{element_key}'] = document.getElementById('audio_{element_key}').currentTime; this.innerHTML='⚙️ MARKED ' + window['loop_{element_key}'].toFixed(1) + 's'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
+            <button onclick="if(window['loop_{element_key}'] !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window['loop_{element_key}']; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK</button>
         </div>
     </div>
     """
-    st.components.v1.html(html_code, height=135)
+    # Expanded from height=135 to 165 to prevent component boundary clipping
+    st.components.v1.html(html_code, height=165)
 
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
@@ -277,7 +278,7 @@ with st.container(border=True):
             <style>@keyframes pulse { 0% { height: 3px; } 100% { height: 14px; } }</style>
         """, unsafe_allow_html=True)
         
-        # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK (No Download Buttons) ---
+        # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
         if "LIVE LINE-IN" in ui_mode:
             left_col, center_col, right_col = st.columns(3)
             
@@ -358,7 +359,6 @@ with st.container(border=True):
                 st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[INDIVIDUAL SELECTION] EXTRACT SPECIFIC MANIFEST ARTIFACTS</div>", unsafe_allow_html=True)
                 with st.container(border=True):
                     for item in stimuli_manifest:
-                        # Process target configuration on-demand to maintain system speed
                         processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                         if not isinstance(active_target, str): active_target.seek(0)
                         
