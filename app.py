@@ -24,6 +24,10 @@ if not os.path.exists(LIBRARY_DIR):
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
+# Initialize system memory cache for favorite tracks tracking
+if "favorites" not in st.session_state:
+    st.session_state.favorites = []
+
 # Custom Audiometer Structural Frame & LED Header CSS Injection
 st.markdown("""
     <style>
@@ -182,7 +186,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
 # Main structural container mimicking the physical control board chassis
 with st.container(border=True):
     
-    # 1. Functional System Mode Toggle Strip
+    # Functional System Mode Toggle Strip
     st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #64748b; margin-bottom: 2px;'>[CONSOLE FUNCTION CONFIGURATION]</div>", unsafe_allow_html=True)
     ui_mode = st.radio(
         "",
@@ -192,27 +196,63 @@ with st.container(border=True):
     )
     st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
 
-    top_col1, top_col2 = st.columns([2, 1])
+    # Initialize master file options tracking arrays
+    stored_files = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))]
+    all_tracks_list = stored_files + list(st.session_state.session_tracks.keys())
+    
+    # --- FAVORITES DECK BAR ROW ---
+    if st.session_state.favorites:
+        st.markdown("<div style='font-family: monospace; font-size: 0.75rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK] Pinned Stimuli Links</div>", unsafe_allow_html=True)
+        fav_cols = st.columns(max(len(st.session_state.favorites), 1))
+        for f_idx, fav_name in enumerate(st.session_state.favorites):
+            with fav_cols[f_idx]:
+                if st.button(f"🎵 {fav_name[:25]}...", use_container_width=True, key=f"fav_btn_{fav_name}"):
+                    st.session_state.selected_track_override = fav_name
+                    st.rerun()
+        st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+
+    top_col1, top_col2 = st.columns([1, 1])
     
     with top_col1:
         st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[AUDIO STIMULI BANK] SELECT ACTIVE TRACK</div>", unsafe_allow_html=True)
-        stored_files = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))]
-        all_options = ["-- Select Track from Bank --"] + stored_files + list(st.session_state.session_tracks.keys())
-        selected_track_name = st.selectbox("", options=all_options, label_visibility="collapsed")
+        
+        # Handle cross-state override changes safely from favorites selection events
+        default_index = 0
+        if "selected_track_override" in st.session_state and st.session_state.selected_track_override in all_tracks_list:
+            default_index = all_tracks_list.index(st.session_state.selected_track_override) + 1
+            del st.session_state.selected_track_override
+            
+        dropdown_options = ["-- Select Track from Bank --"] + all_tracks_list
+        selected_track_name = st.selectbox("", options=dropdown_options, index=default_index, label_visibility="collapsed", key="master_bank_dropdown")
         
     with top_col2:
-        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[PORT PORTAL] IMPORT NEW FILE TO BANK</div>", unsafe_allow_html=True)
-        new_upload = st.file_uploader("", type=["mp3", "wav"], label_visibility="collapsed", key="uploader_portal")
+        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[PORT PORTAL] BATCH IMPORT NEW FILES TO BANK</div>", unsafe_allow_html=True)
+        new_uploads = st.file_uploader("", type=["mp3", "wav"], accept_multiple_files=True, label_visibility="collapsed", key="uploader_portal")
         
-        if new_upload is not None:
-            if new_upload.name not in st.session_state.session_tracks:
-                st.session_state.session_tracks[new_upload.name] = new_upload.read()
+        if new_uploads:
+            triggered_rerun = False
+            for upload in new_uploads:
+                if upload.name not in st.session_state.session_tracks:
+                    st.session_state.session_tracks[upload.name] = upload.read()
+                    triggered_rerun = True
+            if triggered_rerun:
                 st.rerun()
 
     active_target = None
     base_name = ""
     
     if selected_track_name and selected_track_name != "-- Select Track from Bank --":
+        # Pin/Unpin Toggle Button Directly Under Selector Layout Frame
+        is_fav = selected_track_name in st.session_state.favorites
+        fav_label = "⭐ REMOVE FROM FAVOURITES" if is_fav else "☆ ADD TO FAVOURITES"
+        if st.button(fav_label, key="toggle_fav_action"):
+            if is_fav:
+                st.session_state.favorites.remove(selected_track_name)
+            else:
+                st.session_state.favorites.append(selected_track_name)
+            st.session_state.selected_track_override = selected_track_name
+            st.rerun()
+            
         if selected_track_name in stored_files:
             active_target = os.path.join(LIBRARY_DIR, selected_track_name)
             base_name = selected_track_name.rsplit('.', 1)[0]
