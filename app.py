@@ -14,6 +14,7 @@ from streamlit_local_storage import LocalStorage
 # ==============================================================================
 
 # Set wide layout to establish a comprehensive dual-channel audiometer faceplate
+# This ensures that the instrument UI has adequate horizontal space for layout
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -21,17 +22,20 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Initialize LocalStorage client for persisting user preferences across sessions
+# Initialize LocalStorage client for persisting user preferences across clinical sessions
+# This allows the 'Favorites' deck to persist across browser reloads
 local_storage = LocalStorage()
 
 # Define the library directory constant for file path references
 LIBRARY_DIR = "library"
 
 # Ensure local persistence folder exists for storing library files
+# This is where the permanent stimuli bank lives in the GitHub repository
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
 # Initialize system memory cache for tracking current loaded session tracks
+# These are the ephemeral files uploaded during the current live session
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
@@ -45,6 +49,8 @@ if "favorites" not in st.session_state:
 # CSS & STYLE INJECTION (Verbose Formatting)
 # ==============================================================================
 
+# The following CSS blocks define the clinical "look and feel" of the instrument.
+# We inject these styles to maintain a consistent VRA-11 look across the clinic.
 st.markdown("""
     <style>
         /* Base page grounding mimicking hardware metal casing */
@@ -105,7 +111,10 @@ st.markdown("""
 # ==============================================================================
 
 def butter_filter_sos(cutoff_low, cutoff_high, fs, filter_type='band', order=8):
-    """Calculates Butterworth filter coefficients for signal conditioning."""
+    """
+    Calculates Butterworth filter coefficients for signal conditioning.
+    This provides the necessary frequency shaping for Narrowband Noise (NBN).
+    """
     nyq = 0.5 * fs
     if filter_type == 'low':
         normal_cutoff = cutoff_high / nyq
@@ -120,11 +129,17 @@ def butter_filter_sos(cutoff_low, cutoff_high, fs, filter_type='band', order=8):
     return sos
 
 def calculate_rms(data):
-    """Calculates Root Mean Square of audio data to determine energy levels."""
+    """
+    Calculates Root Mean Square of audio data to determine energy levels.
+    Essential for ensuring consistent clinical presentation across stimuli.
+    """
     return np.sqrt(np.mean(data**2))
 
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
-    """Normalizes audio to a target RMS level, ensuring clinical repeatability."""
+    """
+    Normalizes audio to a target RMS level, ensuring clinical repeatability.
+    This prevents stimulus intensity variation between different source files.
+    """
     current_rms = calculate_rms(data)
     if current_rms == 0: return data
         
@@ -139,7 +154,10 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     return normalized_data
 
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
-    """Generates a pure sine wave at 1000Hz for system calibration."""
+    """
+    Generates a pure sine wave at 1000Hz for system calibration.
+    This is the reference signal for verifying transducer output levels.
+    """
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
     data = rms_normalize(data, target_db=-20.0)
@@ -149,7 +167,10 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     return virtual_file
 
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim_seconds=0.0):
-    """Loads, processes, filters, and normalizes audio buffers for output."""
+    """
+    Loads, processes, filters, and normalizes audio buffers for output.
+    Handles MP3 decoding and WAV processing internally.
+    """
     # Data Ingestion Logic
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
@@ -201,7 +222,10 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     return virtual_file
 
 def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
-    """Injects HTML5 audio components with interactive playback controls."""
+    """
+    Injects HTML5 audio components with interactive playback controls.
+    Includes custom JavaScript for Toggle Play/Pause, Stop, Mark Point, and Jump Back.
+    """
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
@@ -209,17 +233,19 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
         <div style="font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
-        <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button onclick="document.getElementById('audio_{element_key}').play()" style="flex: 1; background-color: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">▶ PLAY</button>
-            <button onclick="document.getElementById('audio_{element_key}').pause()" style="flex: 1; background-color: #ef4444; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">⏸ PAUSE</button>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">▶️/⏸️ TOGGLE</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
         </div>
-        <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="flex: 1; background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
-            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ document.getElementById('audio_{element_key}').currentTime = window.parent.sharedVraLoopPoint; document.getElementById('audio_{element_key}').play(); }}" style="flex: 1; background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">↩️ JUMP BACK</button>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK POINT'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🔴 MARK POINT</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.75rem; cursor: pointer; font-weight: bold;">🐇 JUMP BACK</button>
         </div>
     </div>
     """
-    st.components.v1.html(html_code, height=165)
+    st.components.v1.html(html_code, height=185)
 
 # ==============================================================================
 # UI LOGIC & LAYOUT (Restored Verbose Construction)
@@ -268,7 +294,6 @@ with st.container(border=True):
         default_index = 0
         if "selected_track_override" in st.session_state and st.session_state.selected_track_override in all_tracks_list:
             default_index = all_tracks_list.index(st.session_state.selected_track_override) + 1
-            # Note: We do not delete here to allow the UI to re-select on the rerun
             
         dropdown_options = ["-- Select Track from Bank --"] + all_tracks_list
         selected_track_name = st.selectbox("", options=dropdown_options, index=default_index, label_visibility="collapsed", key="master_bank_dropdown")
