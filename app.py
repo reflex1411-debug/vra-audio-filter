@@ -235,7 +235,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
         
         <!-- Hardware Signal VU Display Subsystem -->
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
-            {"".join(['<div class="vu_bar_' + element_key + '" style="flex: 1; height: 20%; background-color: #10b981; border-radius: 1px;"></div>' for _ in range(32)])}
+            {"".join(['<div class="vu_bar_' + element_key + '" style="flex: 1; height: 10%; background-color: #10b981; border-radius: 1px; transition: height 0.05s ease;"></div>' for _ in range(32)])}
         </div>
 
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
@@ -270,9 +270,12 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
                             bars.forEach((bar, i) => {{
+                                // Linear mapping of bins to bars with inertia decay
                                 const val = (dataArray[i] || 0) / 255.0;
-                                bar.style.height = (20 + (val * 80)) + "%";
-                                bar.style.opacity = 0.2 + (val * 0.8);
+                                const currentH = parseFloat(bar.style.height);
+                                const targetH = 10 + (val * 85);
+                                bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
+                                bar.style.opacity = 0.3 + (val * 0.7);
                             }});
                             requestAnimationFrame(update);
                         }}
