@@ -64,9 +64,9 @@ st.markdown("""
         }
         /* Make internal media players ultra-compact to match instrument aesthetic */
         audio {
-            height: 32px !important;
-            margin-bottom: 8px !important;
-            margin-top: 2px !important;
+            height: 40px !important;
+            margin-bottom: 12px !important;
+            margin-top: 4px !important;
             width: 100%;
         }
         /* Audiogram ruler styling for visual alignment */
@@ -74,33 +74,33 @@ st.markdown("""
             display: flex;
             justify-content: space-between;
             font-family: monospace;
-            font-size: 0.75rem;
+            font-size: 1rem;
             color: #fbbf24;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
             padding: 0 40px;
-            border-bottom: 1px solid #fbbf24;
+            border-bottom: 2px solid #fbbf24;
         }
     </style>
     
     <!-- Faceplate Main Header -->
-    <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 15px 25px; border-radius: 8px 8px 0px 0px; border: 2px solid #475569; border-bottom: none; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
+    <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 8px 8px 0px 0px; border: 2px solid #475569; border-bottom: none; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="38" height="38">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
                 <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#94a3b8"/>
             </svg>
             <div style="text-align: left;">
-                <h1 style="color: #f8fafc; margin: 0; font-family: monospace; font-size: 1.4rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
-                <div style="color: #94a3b8; font-size: 0.75rem; font-family: monospace; margin-top: 2px;">MODEL VRA-11 // RMS-CALIBRATED OUTPUT MATRIX</div>
+                <h1 style="color: #f8fafc; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
+                <div style="color: #94a3b8; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // RMS-CALIBRATED OUTPUT MATRIX</div>
             </div>
         </div>
         <!-- Simulated Hardware Status LED Matrix -->
-        <div style="display: flex; gap: 12px; align-items: center; background: #0f172a; padding: 6px 12px; border-radius: 4px; border: 1px solid #334155;">
-            <div style="display: flex; align-items: center; gap: 5px; font-family: monospace; font-size: 0.7rem; color: #64748b;">
-                <div style="width: 8px; height: 8px; background-color: #22c55e; border-radius: 50%; box-shadow: 0 0 8px #22c55e;"></div> SYS_READY
+        <div style="display: flex; gap: 15px; align-items: center; background: #0f172a; padding: 10px 20px; border-radius: 4px; border: 1px solid #334155;">
+            <div style="display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 0.85rem; color: #64748b;">
+                <div style="width: 10px; height: 10px; background-color: #22c55e; border-radius: 50%; box-shadow: 0 0 10px #22c55e;"></div> SYS_READY
             </div>
-            <div style="width: 1px; height: 12px; background: #334155;"></div>
-            <div style="display: flex; align-items: center; gap: 5px; font-family: monospace; font-size: 0.7rem; color: #64748b;">
-                <div style="width: 8px; height: 8px; background-color: #38bdf8; border-radius: 50%; box-shadow: 0 0 8px #38bdf8;"></div> RMS_FIXED (-20dBFS)
+            <div style="width: 1px; height: 16px; background: #334155;"></div>
+            <div style="display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 0.85rem; color: #64748b;">
+                <div style="width: 10px; height: 10px; background-color: #38bdf8; border-radius: 50%; box-shadow: 0 0 10px #38bdf8;"></div> RMS_FIXED (-20dBFS)
             </div>
         </div>
     </div>
@@ -230,22 +230,22 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 0px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-        <div style="font-family: monospace; font-size: 0.9rem; color: #f8fafc; font-weight: bold; margin-bottom: 8px; letter-spacing: 0.5px;">{label}</div>
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 0px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px;">
-            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">▶️/⏸️</button>
-            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">⏹️</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
+            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 25px 5px; border-radius: 0px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">▶️ PLAY / ⏸️ PAUSE</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 25px 5px; border-radius: 0px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
         </div>
         
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️'; setTimeout(()=>{{this.innerHTML='🔴'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">🔴</button>
-            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 30px 5px; border-radius: 0px; font-family: monospace; font-size: 1.1rem; cursor: pointer; font-weight: bold;">🐇</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 0px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 0px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
     </div>
     """
-    st.components.v1.html(html_code, height=275)
+    st.components.v1.html(html_code, height=310)
 
 # ==============================================================================
 # UI LOGIC & LAYOUT (Restored Verbose Construction)
@@ -262,7 +262,7 @@ with st.container(border=True):
             st.success("Calibration tone active. Signal normalized to -20dBFS.")
 
     # Functional System Mode Toggle Strip
-    st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #64748b; margin-bottom: 2px;'>[CONSOLE FUNCTION CONFIGURATION]</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-family: monospace; font-size: 1.0rem; color: #64748b; margin-bottom: 2px;'>[CONSOLE FUNCTION CONFIGURATION]</div>", unsafe_allow_html=True)
     ui_mode = st.radio(
         "",
         ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"],
@@ -277,7 +277,7 @@ with st.container(border=True):
     
     # --- FAVORITES DECK BAR ROW ---
     if st.session_state.favorites:
-        st.markdown("<div style='font-family: monospace; font-size: 0.75rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK] Pinned Stimuli Links</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK] Pinned Stimuli Links</div>", unsafe_allow_html=True)
         fav_cols = st.columns(max(len(st.session_state.favorites), 1))
         for f_idx, fav_name in enumerate(st.session_state.favorites):
             with fav_cols[f_idx]:
@@ -289,7 +289,7 @@ with st.container(border=True):
     top_col1, top_col2 = st.columns([1, 1])
     
     with top_col1:
-        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[AUDIO STIMULI BANK] SELECT ACTIVE TRACK</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-family: monospace; font-size: 1.0rem; color: #94a3b8; margin-bottom: 5px;'>[AUDIO STIMULI BANK] SELECT ACTIVE TRACK</div>", unsafe_allow_html=True)
         
         default_index = 0
         if "selected_track_override" in st.session_state and st.session_state.selected_track_override in all_tracks_list:
@@ -299,7 +299,7 @@ with st.container(border=True):
         selected_track_name = st.selectbox("", options=dropdown_options, index=default_index, label_visibility="collapsed", key="master_bank_dropdown")
         
     with top_col2:
-        st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px;'>[PORT PORTAL] BATCH IMPORT NEW FILES TO BANK</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-family: monospace; font-size: 1.0rem; color: #94a3b8; margin-bottom: 5px;'>[PORT PORTAL] BATCH IMPORT NEW FILES TO BANK</div>", unsafe_allow_html=True)
         new_uploads = st.file_uploader("", type=["mp3", "wav"], accept_multiple_files=True, label_visibility="collapsed", key="uploader_portal")
         
         if new_uploads:
@@ -358,28 +358,28 @@ with st.container(border=True):
         # Dual Control Dial Block: Signal Gate + Pre-Roll Alignment Dial
         slider_col1, slider_col2 = st.columns(2)
         with slider_col1:
-            st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-family: monospace; font-size: 1.0rem; color: #38bdf8; margin-top: 10px; margin-bottom: -5px;'>[SIGNAL TRIMMING GATE] CUT START POSITION (SECONDS)</div>", unsafe_allow_html=True)
             trim_seconds = st.slider("", min_value=0.0, max_value=min(total_duration - 2.0, 30.0), value=0.0, step=0.5, label_visibility="collapsed", key="trim_slider")
         with slider_col2:
-            st.markdown("<div style='font-family: monospace; font-size: 0.8rem; color: #fbbf24; margin-top: 10px; margin-bottom: -5px;'>[ALIGNMENT LATENCY DIAL] JUMP BACK PRE-ROLL (SECONDS)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-family: monospace; font-size: 1.0rem; color: #fbbf24; margin-top: 10px; margin-bottom: -5px;'>[ALIGNMENT LATENCY DIAL] JUMP BACK PRE-ROLL (SECONDS)</div>", unsafe_allow_html=True)
             preroll_offset = st.slider("", min_value=0.0, max_value=5.0, value=2.0, step=0.1, label_visibility="collapsed", key="latency_dial")
         
         stimuli_manifest = [
-            {"label": "Full-Range", "low": None, "high": None, "type": "raw", "suffix": "Full-Range", "order": 8},
+            {"label": "Broadband", "low": None, "high": None, "type": "raw", "suffix": "Broadband", "order": 8},
             {"label": "Low-Pass (≤1000 Hz)", "low": None, "high": 1000, "type": "low", "suffix": "LowPass_1kHz", "order": 8},
             {"label": "High-Pass (>1000 Hz)", "low": 1000, "high": None, "type": "high", "suffix": "HighPass_1kHz", "order": 8},
-            {"label": "500Hz Original NBN", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_NBN", "order": 8},
-            {"label": "1000Hz Original NBN", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_NBN", "order": 8},
-            {"label": "2000Hz Original NBN", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_NBN", "order": 8},
-            {"label": "4000Hz Original NBN", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_NBN", "order": 8}
+            {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500Hz_BPF", "order": 8},
+            {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000Hz_BPF", "order": 8},
+            {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000Hz_BPF", "order": 8},
+            {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000Hz_BPF", "order": 8}
         ]
         
         # --- VIEW MODE 1: LIVE PRESENTATION MODE DESK ---
         if "LIVE LINE-IN" in ui_mode:
-            st.markdown("<br><div style='font-family: monospace; font-size: 0.9rem; color: #94a3b8; font-weight: bold;'>[ROW 1] BROADBAND & FILTERS</div>", unsafe_allow_html=True)
+            st.markdown("<br><div style='font-family: monospace; font-size: 1.1rem; color: #94a3b8; font-weight: bold;'>[ROW 1] BROADBAND & FILTERS</div>", unsafe_allow_html=True)
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             
-            broadband_items = [i for i in stimuli_manifest if "NBN" not in i["label"]]
+            broadband_items = [i for i in stimuli_manifest if "BPF" not in i["label"]]
             for i, item in enumerate(broadband_items):
                 col = [r1_c1, r1_c2, r1_c3][i]
                 with col:
@@ -389,10 +389,10 @@ with st.container(border=True):
 
             st.divider()
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
-            st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; font-weight: bold;'>[ROW 2] NBN FILTERED BANDS (AUDIOGRAM SWEEP)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-family: monospace; font-size: 1.1rem; color: #fbbf24; font-weight: bold;'>[ROW 2] BPF FILTERED BANDS (AUDIOGRAM SWEEP)</div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             
-            nbn_items = [i for i in stimuli_manifest if "NBN" in i["label"]]
+            nbn_items = [i for i in stimuli_manifest if "BPF" in i["label"]]
             for i, item in enumerate(nbn_items):
                 col = [r2_c1, r2_c2, r2_c3, r2_c4][i]
                 with col:
@@ -402,11 +402,11 @@ with st.container(border=True):
 
         # --- VIEW MODE 2: EXPORT & DOWNLOAD ARCHIVE SECTION ---
         else:
-            st.markdown("<h4 style='margin: 0 0 10px 0; font-family: monospace; color: #f8fafc;'>📦 DISK COMPILATION EXPEDITIONS</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='margin: 0 0 10px 0; font-family: monospace; color: #f8fafc; font-size: 1.2rem;'>📦 DISK COMPILATION EXPEDITIONS</h4>", unsafe_allow_html=True)
             dl_col1, dl_col2 = st.columns([1, 2])
             
             with dl_col1:
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[BATCH UTILITY] PACK COMPLETE MATRICES</div>", unsafe_allow_html=True)
+                st.markdown("<div style='background-color: #1e293b; padding: 10px 15px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 1.0rem; color: #f8fafc; font-weight: bold;'>[BATCH UTILITY] PACK COMPLETE MATRICES</div>", unsafe_allow_html=True)
                 with st.container(border=True):
                     st.caption("Bundles all processed, gated, and RMS-normalized variants into one zip file.")
                     with st.spinner("Compiling compressed archive..."):
@@ -420,13 +420,13 @@ with st.container(border=True):
                         st.download_button("📦 DOWNLOAD COMPLETE SET (.ZIP)", data=zip_buffer, file_name=f"{base_name}_VRA_Complete_Set.zip", mime="application/zip", use_container_width=True, type="primary")
             
             with dl_col2:
-                st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[INDIVIDUAL SELECTION] EXTRACT SPECIFIC MANIFEST ARTIFACTS</div>", unsafe_allow_html=True)
+                st.markdown("<div style='background-color: #1e293b; padding: 10px 15px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 1.0rem; color: #f8fafc; font-weight: bold;'>[INDIVIDUAL SELECTION] EXTRACT SPECIFIC MANIFEST ARTIFACTS</div>", unsafe_allow_html=True)
                 with st.container(border=True):
                     for item in stimuli_manifest:
                         processed_buffer = process_audio_buffer(active_target, item["low"], item["high"], item["type"], item["order"], trim_seconds)
                         if not isinstance(active_target, str): active_target.seek(0)
                         btn_col1, btn_col2 = st.columns([3, 1])
-                        with btn_col1: st.markdown(f"<div style='font-family: monospace; font-size: 0.85rem; color: #e2e8f0; padding-top: 6px;'>→ {base_name}_{item['suffix']}.wav</div>", unsafe_allow_html=True)
+                        with btn_col1: st.markdown(f"<div style='font-family: monospace; font-size: 1.0rem; color: #e2e8f0; padding-top: 10px;'>→ {base_name}_{item['suffix']}.wav</div>", unsafe_allow_html=True)
                         with btn_col2: st.download_button("📥 SAVE WAV", data=processed_buffer, file_name=f"{base_name}_{item['suffix']}.wav", mime="audio/wav", use_container_width=True, key=f"archive_dl_{item['suffix']}")
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
