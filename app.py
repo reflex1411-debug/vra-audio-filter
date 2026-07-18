@@ -198,6 +198,18 @@ with st.container(border=True):
         with left_col:
             st.markdown("<div style='background-color: #1e293b; padding: 6px 10px; border-radius: 4px 4px 0 0; border: 1px solid #334155; font-family: monospace; font-size: 0.8rem; color: #f8fafc; font-weight: bold;'>[PANEL A] MASTER ROUTING</div>", unsafe_allow_html=True)
             with st.container(border=True):
+                # Hardcoded 1kHz Continuous Calibration Tone for Line-In VU Matching
+                st.markdown("<div style='font-family: monospace; font-size: 0.7rem; color: #e2e8f0; margin-bottom: 2px;'>🎚️ AUDIOMETER VU CALIBRATION (1kHz Tone)</div>", unsafe_allow_html=True)
+                fs_cal = 44100
+                t_cal = np.linspace(0, 5.0, int(fs_cal * 5.0), endpoint=False)
+                tone_cal = np.sin(2 * np.pi * 1000 * t_cal) * (10 ** (-20.0 / 20.0) * np.sqrt(2))
+                cal_buffer = io.BytesIO()
+                sf.write(cal_buffer, tone_cal, fs_cal, format='WAV')
+                cal_buffer.seek(0)
+                st.audio(cal_buffer, format="audio/wav")
+                
+                st.markdown("<hr style='margin: 8px 0; border-color: #334155;' />", unsafe_allow_html=True)
+
                 # Full Range
                 processed_buffer = process_audio_buffer(uploaded_file, None, None, 'raw', 8, trim_seconds)
                 uploaded_file.seek(0)
