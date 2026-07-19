@@ -87,12 +87,12 @@ st.markdown("""
 # ==============================================================================
 
 def download_youtube_audio(url, cookie_path=None):
-    """Downloads audio from YouTube using robust header settings."""
-    # Changed format to 'bestaudio' for higher compatibility with various stream types
+    """Downloads audio from YouTube with permissive format selection."""
     ydl_opts = {
-        'format': 'bestaudio', 
+        'format': 'bestaudio/best', # More permissive fallback
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav', 'preferredquality': '192'}],
         'outtmpl': 'library/yt_download.%(ext)s',
+        'nocheckcertificate': True,
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     }
     if cookie_path:
