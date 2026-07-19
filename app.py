@@ -13,7 +13,13 @@ from streamlit_local_storage import LocalStorage
 # CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
-st.set_page_config(page_title="Neilio's VRA Toolkit", page_icon="🎧", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="Neilio's VRA Toolkit", 
+    page_icon="🎧", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 local_storage = LocalStorage()
 LIBRARY_DIR = "library"
 if not os.path.exists(LIBRARY_DIR): os.makedirs(LIBRARY_DIR)
@@ -59,6 +65,7 @@ def apply_compression(data, threshold_db=-20.0):
     return np.clip(data, -max_amp, max_amp)
 
 def process_audio_buffer(file_source, lowcut, highcut, filter_type, trim=0.0, compress=False):
+    # Handle file reading
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: bytes_data = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -67,16 +74,20 @@ def process_audio_buffer(file_source, lowcut, highcut, filter_type, trim=0.0, co
         is_mp3 = file_source.name.lower().endswith('.mp3')
         file_source.seek(0)
     
+    # Decode audio
     if is_mp3:
         audio = AudioSegment.from_file(io.BytesIO(bytes_data), format="mp3").set_frame_rate(44100).set_channels(1)
         data = np.array(audio.get_array_of_samples(), dtype=np.float32) / (2**15)
         fs = 44100
     else: data, fs = sf.read(io.BytesIO(bytes_data))
         
+    # Processing chain
     if trim > 0: data = data[int(trim*fs):]
     if filter_type != 'raw': data = sosfilt(butter_filter_sos(lowcut, highcut, fs, filter_type), data)
     if compress: data = apply_compression(data)
     data = rms_normalize(data)
+    
+    # Save output
     buf = io.BytesIO()
     sf.write(buf, data, fs, format='WAV')
     buf.seek(0)
@@ -136,21 +147,17 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll):
 # ==============================================================================
 
 with st.container(border=True):
-    with st.expander("🛠️ SYSTEM CALIBRATION & AUDIT"):
-        c_a, c_b = st.columns(2)
-        if c_a.button("🔊 Generate 1kHz Tone"): st.audio(generate_calibration_tone(), format="audio/wav")
+    with st.expander("🛠️ SYSTEM CALIBRATION"):
+        if st.button("🔊 Generate 1kHz Tone"): st.audio(generate_calibration_tone(), format="audio/wav")
 
     ui = st.radio("", ["🎛️ LIVE PRESENTATION", "📦 EXPORT"], horizontal=True, label_visibility="collapsed")
     
-    # SEARCHABLE LIBRARY
     all_tr = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
     search = st.text_input("🔍 Search Library:", placeholder="Start typing to filter...")
     filt = [t for t in all_tr if search.lower() in t.lower()]
-    sel = st.selectbox("Library Selection:", ["-- Select Track --"] + filt)
+    sel = st.selectbox("Library Selection:", ["-- Select --"] + filt)
     
-    # FAVORITES
     if st.session_state.favorites:
-        st.markdown("**⭐ Favorites**")
         fav_cols = st.columns(max(len(st.session_state.favorites), 1))
         for i, f in enumerate(st.session_state.favorites):
             if fav_cols[i].button(f"🎵 {f[:15]}", key=f"fav_{i}"): st.session_state.selected_track_override = f; st.rerun()
@@ -159,12 +166,18 @@ with st.container(border=True):
         # ACTIVE SIGNAL BANNER
         st.markdown(f"<div style='background:#0f172a; border:2px solid #38bdf8; padding:20px; text-align:center; color:#38bdf8; font-family:monospace; font-size:1.5rem; margin:15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
-        # AUDIT
+        if st.button("⭐ Toggle Favorite"):
+            if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
+            else: st.session_state.favorites.append(sel)
+            local_storage.setItem("favorites", st.session_state.favorites); st.rerun()
+
+        # AUDIT & SETTINGS
         src_p = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
+        # Safe read
         if isinstance(src_p, str): data, _ = sf.read(src_p)
         else: data, _ = sf.read(src_p); src_p.seek(0)
-        st.info(f"Dynamic Range: {get_stats(data):.2f} dB")
         
+        st.info(f"Dynamic Range: {get_stats(data):.2f} dB")
         compress = st.checkbox("Apply Compression (3-5dB Target)")
         trim = st.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
         preroll = st.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
