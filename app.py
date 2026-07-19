@@ -8,6 +8,7 @@ import io
 import zipfile
 import os
 import base64
+import yt_dlp
 from streamlit_local_storage import LocalStorage
 
 # ==============================================================================
@@ -47,7 +48,6 @@ if "favorites" not in st.session_state:
 
 st.markdown("""
     <style>
-        /* Base page grounding mimicking hardware metal casing */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
@@ -86,6 +86,17 @@ st.markdown("""
 # 3. AUDIO PROCESSING ENGINE
 # ==============================================================================
 
+def download_youtube_audio(url):
+    """Downloads audio from YouTube using yt-dlp."""
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav', 'preferredquality': '192'}],
+        'outtmpl': 'library/temp_yt_audio.%(ext)s',
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return "library/temp_yt_audio.wav"
+
 def butter_filter_sos(low, high, fs, filter_type='band', order=8):
     """Calculates Butterworth filter coefficients."""
     nyq = 0.5 * fs
@@ -120,7 +131,7 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     virtual_file.seek(0)
     return virtual_file
 
-def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False, noise_gain=0.0):
+def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False, add_noise=False, noise_gain=0.0):
     """Loads, filters, normalizes, and optionally compresses/adds noise to audio buffers."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
@@ -149,10 +160,9 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
 
-    # Add Noise Floor
-    if noise_gain > 0:
+    # Constant Noise Floor Addition (NBN background)
+    if add_noise:
         noise = np.random.normal(0, 0.05, len(filtered_data))
-        # Filter noise to match the passband so it's not full-spectrum
         if filter_type != 'raw':
             noise = sosfilt(sos, noise)
         filtered_data = filtered_data + (noise * noise_gain)
@@ -178,7 +188,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
+    <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
@@ -246,6 +256,15 @@ with st.container(border=True):
             st.audio(cal_buffer, format="audio/wav")
             st.success("Calibration active.")
 
+    # YouTube URL Input Section
+    yt_url = st.text_input("🔗 Or input YouTube URL to load track:")
+    if yt_url:
+        with st.spinner("Downloading YouTube stream..."):
+            temp_path = download_youtube_audio(yt_url)
+            # Add to local library for processing
+            st.success("Download complete.")
+            st.rerun()
+
     ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
     
     # Clinical processing toggles
@@ -300,14 +319,14 @@ with st.container(border=True):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=(noise_gain > 0), noise_gain=noise_gain)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=(noise_gain > 0), noise_gain=noise_gain)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
         
         else: # EXPORT MODE
@@ -315,7 +334,7 @@ with st.container(border=True):
                 zip_b = io.BytesIO()
                 with zipfile.ZipFile(zip_b, "w") as z:
                     for item in manifest:
-                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
+                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=(noise_gain > 0), noise_gain=noise_gain)
                         z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
