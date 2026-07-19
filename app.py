@@ -57,7 +57,7 @@ st.markdown("""
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
 
-        /* Marquee Animation for Active Signal */
+        /* Animated Marquee - High Visibility */
         .marquee {
             width: 100%;
             overflow: hidden;
@@ -66,12 +66,19 @@ st.markdown("""
             background: #0f172a; 
             border: 2px solid #38bdf8; 
             border-radius: 12px; 
-            padding: 20px;
+            padding: 25px;
+            margin: 15px 0;
         }
         .marquee span {
             display: inline-block;
             padding-left: 100%;
             animation: marquee 15s linear infinite;
+            font-family: monospace;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #38bdf8;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
         @keyframes marquee {
             0% { transform: translate(0, 0); }
@@ -291,7 +298,7 @@ with tab1:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], order=st.session_state.filter_order, trim=trim, compress=compress_toggle, noise_gain=noise_gain)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll, st.session_state.fft_gain)
             
-            # --- ACTIVE SIGNAL INDICATOR (Animated Scrolling) ---
+            # --- ANIMATED ACTIVE SIGNAL INDICATOR ---
             st.markdown(f"""
                 <div class='marquee'><span>ACTIVE SIGNAL: {sel}</span></div>
             """, unsafe_allow_html=True)
