@@ -3,6 +3,7 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
+from pydub import effects
 import io
 import zipfile
 import os
@@ -13,6 +14,7 @@ from streamlit_local_storage import LocalStorage
 # CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
+# Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -20,15 +22,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Initialize LocalStorage client for persisting user preferences across sessions
 local_storage = LocalStorage()
+
+# Define the library directory constant for file path references
 LIBRARY_DIR = "library"
 
+# Ensure local persistence folder exists for storing library files
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
+# Initialize system memory cache for tracking current loaded session tracks
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
+# Initialize system memory cache for favorite tracks tracking
 stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
@@ -39,15 +47,19 @@ if "favorites" not in st.session_state:
 
 st.markdown("""
     <style>
+        /* Base page grounding mimicking hardware metal casing */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+        /* Audio player styling */
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
+        /* Audiogram ruler styling */
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin-bottom: 12px; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
     </style>
     
+    <!-- Faceplate Main Header -->
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
@@ -66,6 +78,7 @@ st.markdown("""
 # ==============================================================================
 
 def butter_filter_sos(low, high, fs, filter_type='band', order=8):
+    """Calculates Butterworth filter coefficients."""
     nyq = 0.5 * fs
     if filter_type == 'low': sos = butter(order, high/nyq, btype='low', output='sos')
     elif filter_type == 'high': sos = butter(order, low/nyq, btype='high', output='sos')
@@ -73,9 +86,11 @@ def butter_filter_sos(low, high, fs, filter_type='band', order=8):
     return sos
 
 def calculate_rms(data):
+    """Calculates Root Mean Square of audio data."""
     return np.sqrt(np.mean(data**2))
 
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
+    """Normalizes audio to target RMS level."""
     current_rms = calculate_rms(data)
     if current_rms == 0: return data
     target_linear = 10 ** (target_db / 20.0)
@@ -87,6 +102,7 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     return normalized_data
 
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
+    """Generates a 1kHz calibration sine wave."""
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
     data = rms_normalize(data, target_db=-20.0)
@@ -96,6 +112,7 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     return virtual_file
 
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False):
+    """Loads, filters, and normalizes audio buffers with advanced clinical compression."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -122,9 +139,19 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
 
-    # 3-5dB Compression (Soft Limiter)
+    # AGGRESSIVE CLINICAL COMPRESSION (True dynamic leveling)
     if compress:
-        filtered_data = np.tanh(filtered_data * 2.5) * 0.45
+        # Convert to Pydub AudioSegment for true ratio compression
+        int_data = (filtered_data * 32767).astype(np.int16)
+        audio_seg = AudioSegment(
+            int_data.tobytes(), frame_rate=int(fs), 
+            sample_width=2, channels=1
+        )
+        # Ratio 8.0, Threshold -25dB provides the 'steady' clinical output needed
+        audio_seg = effects.compress_dynamic_range(
+            audio_seg, threshold=-25.0, ratio=8.0, attack=5.0, release=150.0
+        )
+        filtered_data = np.array(audio_seg.get_array_of_samples(), dtype=np.float32) / 32768.0
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
     virtual_file = io.BytesIO()
@@ -133,6 +160,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     return virtual_file
 
 def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
+    """Injects HTML5 audio components with interactive playback controls and linear FFT analyzer."""
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
@@ -169,7 +197,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048; 
+                        analyser.fftSize = 2048;
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
@@ -206,18 +234,17 @@ with st.container(border=True):
             st.success("Calibration active.")
 
     ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
-    
-    # Compression toggle for steady signal
     compress_toggle = st.checkbox("Enable 3-5dB Dynamic Range Compression")
-    
     st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
 
     all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
     
+    # SEARCHABLE LIBRARY
     search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
     filtered = [t for t in all_tracks if search.lower() in t.lower()]
     sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
     
+    # FAVORITES DECK
     if st.session_state.favorites:
         st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK]</div>", unsafe_allow_html=True)
         fav_cols = st.columns(max(len(st.session_state.favorites), 1))
@@ -228,6 +255,7 @@ with st.container(border=True):
                     st.rerun()
 
     if sel != "-- Select Track from Bank --":
+        # ACTIVE SIGNAL MONITOR
         st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
         if st.button("⭐ Toggle Favorite"):
