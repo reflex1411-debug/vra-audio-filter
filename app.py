@@ -59,7 +59,7 @@ st.markdown("""
 
         /* Dot Matrix Narrow Marquee */
         .marquee {
-            width: 100%;
+            width: 60%;
             overflow: hidden;
             white-space: nowrap;
             box-sizing: border-box;
