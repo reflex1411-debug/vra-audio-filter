@@ -15,6 +15,7 @@ from streamlit_local_storage import LocalStorage
 # 1. CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
+# Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -22,15 +23,21 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Initialize LocalStorage client for persisting user preferences across sessions
 local_storage = LocalStorage()
+
+# Define the library directory constant for file path references
 LIBRARY_DIR = "library"
 
+# Ensure local persistence folder exists for storing library files
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
+# Initialize system memory cache for tracking current loaded session tracks
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
+# Initialize system memory cache for favorite tracks tracking
 stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
@@ -44,20 +51,24 @@ st.markdown("""
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
+        /* Clinical rounded-square card styling */
         .card { 
             background-color: #1e293b; border: 1px solid #334155; 
             border-radius: 12px; padding: 16px; margin-bottom: 12px; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; 
         }
         
+        /* Audio player styling */
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
         
+        /* Audiogram ruler styling */
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
     </style>
     
+    <!-- Faceplate Main Header -->
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
@@ -78,7 +89,7 @@ st.markdown("""
 def download_youtube_audio(url, cookie_path=None):
     """Downloads audio from YouTube using permissive format settings."""
     ydl_opts = {
-        'format': 'bestaudio', # Most permissive for audio streams
+        'format': 'bestaudio', 
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav', 'preferredquality': '192'}],
         'outtmpl': 'library/yt_download.%(ext)s',
         'nocheckcertificate': True,
@@ -201,7 +212,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
         </div>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🎯 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🎯 MARK</button>
             <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
 
