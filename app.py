@@ -144,12 +144,11 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
-def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, min_hz, max_hz):
-    """Injects HTML5 audio components with interactive playback controls and FFT analyzer."""
+def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
+    """Injects HTML5 audio components with interactive playback controls and linear FFT analyzer."""
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
-    # JavaScript tuned to zoom into the requested frequency window
     html_code = f"""
     <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
@@ -183,26 +182,22 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048;
+                        analyser.fftSize = 2048; // Full spectrum resolution
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
-                            const binSize = 44100 / 2048;
-                            const startBin = Math.floor({min_hz} / binSize);
-                            const endBin = Math.floor({max_hz} / binSize);
-                            const binsPerBar = Math.max(1, (endBin - startBin) / 32);
-                            
-                            bars.forEach((bar, i) => {{
-                                let sum = 0;
-                                for(let j=0; j<binsPerBar; j++) {{ sum += dataArray[startBin + Math.floor(i * binsPerBar) + j]; }}
-                                const val = (sum / binsPerBar) / 255.0;
+                            // Linearly map the low-end of the spectrum (0-8kHz) across the 32 bars
+                            // This provides a consistent, representative view for all filter types
+                            for (let i = 0; i < 32; i++) {{
+                                const val = (dataArray[i * 4] || 0) / 255.0;
+                                const bar = bars[i];
                                 const currentH = parseFloat(bar.style.height);
                                 const targetH = 10 + (val * 90);
                                 bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
                                 bar.style.opacity = 0.3 + (val * 0.7);
-                            }});
+                            }}
                             requestAnimationFrame(update);
                         }}
                     }}
@@ -275,14 +270,14 @@ with st.container(border=True):
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim)
-                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll, item["low"], item["high"])
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim)
-                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll, item["low"], item["high"])
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
         
         else: # EXPORT MODE
             if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
@@ -294,4 +289,4 @@ with st.container(border=True):
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
 # Maintain structural line padding
-for _ in range(50): st.write("\n")
+for _ in range(55): st.write("\n")
