@@ -4,16 +4,14 @@ import soundfile as sf
 from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
+import zipfile
 import os
 import base64
 from streamlit_local_storage import LocalStorage
 
 # ==============================================================================
-# 1. CONFIGURATION AND SYSTEM INITIALIZATION
+# CONFIGURATION & INITIALIZATION
 # ==============================================================================
-# The VRA Toolkit is designed for clinical environments where precision, 
-# repeatability, and visual clarity are paramount.
-# This configuration sets the foundation for a wide-screen, minimalist interface.
 
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
@@ -22,309 +20,198 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Apple Minimalist Theme parameters for high-end clinical presentation.
-# These values control the color palette, card shadows, and UI spacing.
-THEME = {
-    "bg": "#f5f5f7", 
-    "card": "#ffffff", 
-    "text": "#1d1d1f", 
-    "border": "#d2d2d7", 
-    "accent": "#0071e3", 
-    "shadow": "0 2px 8px rgba(0,0,0,0.05)"
-}
-
-# Persistent data store initialization for favorites retrieval
 local_storage = LocalStorage()
 LIBRARY_DIR = "library"
-
-# Verify that the library directory exists for stimulus storage
-if not os.path.exists(LIBRARY_DIR): 
-    os.makedirs(LIBRARY_DIR)
-
-# Initialize Session State management for track lists and favorites
-if "session_tracks" not in st.session_state: 
-    st.session_state.session_tracks = {}
-if "favorites" not in st.session_state: 
-    st.session_state.favorites = local_storage.getItem("favorites") or []
+if not os.path.exists(LIBRARY_DIR): os.makedirs(LIBRARY_DIR)
+if "session_tracks" not in st.session_state: st.session_state.session_tracks = {}
+stored_favs = local_storage.getItem("favorites")
+if "favorites" not in st.session_state: st.session_state.favorites = stored_favs if stored_favs else []
 
 # ==============================================================================
-# 2. CLINICAL CSS & INTERFACE STYLING
+# CSS & STYLE INJECTION
 # ==============================================================================
-# We inject a custom CSS stylesheet to overwrite standard Streamlit components,
-# ensuring the look matches the requested minimalist high-end interface.
 
-st.markdown(f"""
+st.markdown("""
     <style>
-        .stApp {{ 
-            background-color: {THEME['bg']} !important; 
-            color: {THEME['text']} !important; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
-        }}
-        .card {{ 
-            background: {THEME['card']}; 
-            border: 1px solid {THEME['border']}; 
-            border-radius: 12px; 
-            padding: 15px; 
-            box-shadow: {THEME['shadow']};
-            margin-bottom: 10px;
-        }}
-        .audiogram-ruler {{ 
-            display: flex; 
-            justify-content: space-between; 
-            font-family: -apple-system, sans-serif; 
-            font-size: 1.1rem; 
-            color: {THEME['accent']}; 
-            margin: 25px 0; 
-            padding: 0 40px; 
-            border-bottom: 2px solid {THEME['border']}; 
-        }}
-        button {{ 
-            width: 100%; 
-            padding: 5px; 
-            font-size: 10px !important; 
-            cursor: pointer; 
-        }}
+        .stApp { background-color: #0f172a !important; }
+        .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+        audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
+        .audiogram-ruler { display: flex; justify-content: space-between; font-family: monospace; font-size: 1.2rem; color: #fbbf24; margin-top: 20px; margin-bottom: 20px; padding: 0 40px; border-bottom: 2px solid #fbbf24; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. AUDIO SIGNAL PROCESSING ENGINE
+# AUDIO PROCESSING ENGINE
 # ==============================================================================
 
-def get_butter_sos(low, high, fs, ftype):
-    """
-    Constructs Second-Order Sections for Butterworth filters.
-    Essential for creating NBN stimuli at specific octave/fractional-octave bands.
-    
-    Args:
-        low: Lower cutoff frequency.
-        high: Upper cutoff frequency.
-        fs: Sampling rate.
-        ftype: Filter type ('low', 'high', or 'band').
-    Returns:
-        SOS coefficients.
-    """
+def butter_filter_sos(low, high, fs, filter_type='band', order=8):
     nyq = 0.5 * fs
-    if ftype == 'low': return butter(8, high/nyq, btype='low', output='sos')
-    if ftype == 'high': return butter(8, low/nyq, btype='high', output='sos')
-    return butter(8, [low/nyq, high/nyq], btype='band', output='sos')
+    if filter_type == 'low': sos = butter(order, high/nyq, btype='low', output='sos')
+    elif filter_type == 'high': sos = butter(order, low/nyq, btype='high', output='sos')
+    else: sos = butter(order, [low/nyq, high/nyq], btype='band', output='sos')
+    return sos
 
-def process_audio(file_source, low, high, ftype, trim=0.0, comp=False):
-    """
-    Processes the raw audio buffer into a clinical-grade stimulus.
-    
-    1. Trims the onset based on input.
-    2. Applies filtering based on band requirements.
-    3. Performs hard-limiting compression (if enabled).
-    4. Normalizes to -20dBFS RMS for consistent output levels.
-    """
-    if isinstance(file_source, str):
-        with open(file_source, 'rb') as f: 
-            data, fs = sf.read(io.BytesIO(f.read()))
-    else:
-        file_source.seek(0)
-        data, fs = sf.read(file_source)
-    
-    # Apply onset trimming
-    if trim > 0: data = data[int(trim*fs):]
-    
-    # Apply filter chain if not 'raw'
-    if ftype != 'raw':
-        data = sosfilt(get_butter_sos(low, high, fs, ftype), data)
-    
-    # Apply hard-clip compression
-    if comp: data = np.clip(data, -0.2, 0.2)
-    
-    # RMS Normalization for standard loudness
+def get_stats(data):
     rms = np.sqrt(np.mean(data**2))
-    if rms > 0: data = data * (10**(-20/20) / rms)
+    peak = np.max(np.abs(data))
+    return 20 * np.log10(peak / rms) if rms > 0 else 0
+
+def rms_normalize(data, target_db=-20.0):
+    rms = np.sqrt(np.mean(data**2))
+    return data * (10**(target_db/20.0) / rms) if rms > 0 else data
+
+def apply_compression(data, threshold_db=-20.0):
+    max_amp = 10**(threshold_db/20.0)
+    return np.clip(data, -max_amp, max_amp)
+
+def process_audio_buffer(file_source, lowcut, highcut, filter_type, trim=0.0, compress=False):
+    # Handle file reading
+    if isinstance(file_source, str):
+        with open(file_source, 'rb') as f: bytes_data = f.read()
+        is_mp3 = file_source.lower().endswith('.mp3')
+    else:
+        bytes_data = file_source.read()
+        is_mp3 = file_source.name.lower().endswith('.mp3')
+        file_source.seek(0)
     
-    # Output to buffer
+    # Decode audio
+    if is_mp3:
+        audio = AudioSegment.from_file(io.BytesIO(bytes_data), format="mp3").set_frame_rate(44100).set_channels(1)
+        data = np.array(audio.get_array_of_samples(), dtype=np.float32) / (2**15)
+        fs = 44100
+    else: data, fs = sf.read(io.BytesIO(bytes_data))
+        
+    # Processing chain
+    if trim > 0: data = data[int(trim*fs):]
+    if filter_type != 'raw': data = sosfilt(butter_filter_sos(lowcut, highcut, fs, filter_type), data)
+    if compress: data = apply_compression(data)
+    data = rms_normalize(data)
+    
+    # Save output
     buf = io.BytesIO()
     sf.write(buf, data, fs, format='WAV')
     buf.seek(0)
     return buf
 
-# ==============================================================================
-# 4. CHANNEL COMPONENT RENDERING
-# ==============================================================================
-
-def render_channel(label, buf, key, preroll):
-    """
-    Renders the stimulus channel control interface.
-    Contains audio controls: Play, Pause, Stop, Mark, Jump.
-    """
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    
-    # HTML component injection for specific stimulus channel
-    st.markdown(f"""
-    <div class="card">
-        <div style="font-weight:600; font-size:0.9rem; margin-bottom:10px;">{label}</div>
-        <audio id="a_{key}" src="data:audio/wav;base64,{b64}" style="width:100%; height:30px;"></audio>
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:3px; margin-top:8px;">
-            <button onclick="let a=document.getElementById('a_{key}'); if(a.paused){{a.play();}}else{{a.pause();}}">▶️/⏸️</button>
-            <button onclick="let a=document.getElementById('a_{key}'); a.pause(); a.currentTime=0;">⏹️</button>
-            <button onclick="window.parent.lp_{key} = document.getElementById('a_{key}').currentTime - {preroll};">🔴MARK</button>
-            <button onclick="let a=document.getElementById('a_{key}'); a.currentTime = window.parent.lp_{key}; a.play();">🐇JUMP</button>
+def render_audiometer_channel(label, audio_buffer, element_key, preroll):
+    audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
+    html_code = f"""
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; text-align: center;">
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 8px;">{label}</div>
+        <div style="display:flex; justify-content:center; gap:10px; margin-bottom:10px;">
+            <div style="width:40%; background:#0f172a; border-radius:8px; border:1px solid #334155; padding:5px;">
+                <svg viewBox="0 0 100 50"><path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#475569" stroke-width="4"/><line id="needle_{element_key}" x1="50" y1="45" x2="50" y2="10" stroke="#ef4444" stroke-width="2" style="transform-origin: 50% 45%; transform: rotate(-45deg);"/></svg>
+            </div>
+            <div id="vu_container_{element_key}" style="width:60%; background:#0f172a; border:1px solid #334155; display:flex; align-items:flex-end; gap:1px; height:50px;">
+                {"".join(['<div class="vu_bar_' + element_key + '" style="flex:1; height:10%; background:#10b981;"></div>' for _ in range(32)])}
+            </div>
         </div>
+        <audio id="audio_{element_key}" src="data:audio/wav;base64,{audio_base64}" controls style="width:100%;"></audio>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:5px;">
+            <button onclick="var a=document.getElementById('audio_{element_key}'); a.play()" style="background:#10b981; color:white; border:none; padding:5px; border-radius:4px;">▶️</button>
+            <button onclick="var a=document.getElementById('audio_{element_key}'); a.pause(); a.currentTime=0" style="background:#ef4444; color:white; border:none; padding:5px; border-radius:4px;">⏹️</button>
+        </div>
+        <script>
+            (function() {{
+                const a = document.getElementById('audio_{element_key}');
+                const b = document.querySelectorAll('.vu_bar_{element_key}');
+                const n = document.getElementById('needle_{element_key}');
+                let ctx, ana, rot = -45;
+                a.onplay = async () => {{
+                    if(!ctx) {{ ctx = new AudioContext(); ana = ctx.createAnalyser(); ctx.createMediaElementSource(a).connect(ana); ana.fftSize=2048; }}
+                    let d = new Uint8Array(ana.frequencyBinCount);
+                    function u() {{
+                        if(!a.paused) {{
+                            ana.getByteFrequencyData(d);
+                            let s = 0;
+                            b.forEach((el, i) => {{
+                                let val = (d[i*4] || 0) / 255.0; s += val;
+                                let boost = (i > 24) ? 1.8 : (i > 16) ? 1.4 : 1.0;
+                                el.style.height = (10 + (Math.min(1.0, val * boost) * 90)) + "%";
+                            }});
+                            rot += ((-45 + (s/32*90)) - rot) * 0.3;
+                            n.style.transform = 'rotate(' + rot + 'deg)';
+                            requestAnimationFrame(u);
+                        }}
+                    }}
+                    u();
+                }}
+            }})();
+        </script>
     </div>
-    """, unsafe_allow_html=True)
-
-# ==============================================================================
-# 5. UI LAYOUT BUILDER: INSTRUMENT CONTROL PANEL (UPPER SECTION)
-# ==============================================================================
-# The layout begins with the control panel as the primary operational hub.
-
-with st.expander("🛠️ INSTRUMENT CONTROL PANEL", expanded=True):
-    col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-    
-    # Calibration tone trigger
-    if col_c1.button("🔊 Calibration Tone"): 
-        st.audio(io.BytesIO(b''), format="audio/wav")
-    
-    # Clinical Processing Parameters
-    compress = col_c2.checkbox("Apply Compression")
-    trim = col_c3.slider("Trim Start (s)", 0.0, 5.0, 0.0)
-    preroll = col_c4.slider("Jump Pre-roll (s)", 0.0, 5.0, 2.0)
-
-# ==============================================================================
-# 6. SIGNAL BANK SELECTION
-# ==============================================================================
-
-# Scan library directory for available audio source files
-files = [f for f in os.listdir(LIBRARY_DIR) if f.endswith(('.mp3', '.wav'))]
-sel = st.selectbox("Select Signal", ["-- Select --"] + files)
-
-if sel != "-- Select --":
-    src = os.path.join(LIBRARY_DIR, sel)
-    
-    # ==========================================================================
-    # 7. FILTER ROW 1 (BROADBAND, LP, HP)
-    # ==========================================================================
-    r1 = st.columns(3)
-    manifest_r1 = [
-        {"l":"Broadband", "low":20, "high":20000, "t":"raw", "s":"BB"},
-        {"l":"Low-Pass", "low":20, "high":1000, "t":"low", "s":"LP"},
-        {"l":"High-Pass", "low":1000, "high":20000, "t":"high", "s":"HP"}
-    ]
-    
-    # Rendering Filter Row 1 channels
-    for i, item in enumerate(manifest_r1):
-        with r1[i]:
-            render_channel(
-                item["l"], 
-                process_audio(src, item["low"], item["high"], item["t"], trim, compress), 
-                item["s"], 
-                preroll
-            )
-
-    # ==========================================================================
-    # 8. ACTIVE SIGNAL BANNER
-    # ==========================================================================
-    # Positioned centrally as requested, between Row 1 and Row 2.
-    
-    st.markdown(f"""
-        <div style="background:{THEME['accent']}; color:white; padding:15px; text-align:center; 
-        border-radius:10px; font-weight:bold; margin: 20px 0; font-size: 1.2rem;">
-        ACTIVE SIGNAL: {sel}
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # ==========================================================================
-    # 9. FREQUENCY ALIGNMENT RULER
-    # ==========================================================================
-    
-    st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
-    
-    # ==========================================================================
-    # 10. FILTER ROW 2 (BPF CHANNELS: 500, 1000, 2000, 4000)
-    # ==========================================================================
-    
-    r2 = st.columns(4)
-    manifest_r2 = [
-        {"l":"500Hz", "low":420, "high":595, "t":"band", "s":"500"},
-        {"l":"1000Hz", "low":841, "high":1189, "t":"band", "s":"1000"},
-        {"l":"2000Hz", "low":1682, "high":2378, "t":"band", "s":"2000"},
-        {"l":"4000Hz", "low":3364, "high":4757, "t":"band", "s":"4000"}
-    ]
-    
-    # Rendering Filter Row 2 channels
-    for i, item in enumerate(manifest_r2):
-        with r2[i]:
-            render_channel(
-                item["l"], 
-                process_audio(src, item["low"], item["high"], item["t"], trim, compress), 
-                item["s"], 
-                preroll
-            )
-
-# ==============================================================================
-# 11. CLINICAL TOOLKIT ARCHITECTURE DOCUMENTATION AND INTEGRITY CHECKS
-# ==============================================================================
-# The final sections provide comprehensive documentation for developers 
-# maintaining the Neilio's VRA Toolkit. This ensures long-term support 
-# and structural compliance with medical device software requirements.
-
-def validate_environment():
     """
-    Checks if the library environment is correctly initialized.
-    Returns: bool
-    """
-    return os.path.exists(LIBRARY_DIR)
-
-def get_system_log():
-    """
-    Returns the current system log entries.
-    """
-    return ["Initialized", "Library Ready", "Aesthetic: Minimalist"]
-
-# Execute integration checks
-if validate_environment():
-    # Environment integrity confirmed
-    pass
-
-# Detailed documentation regarding the Audio Processing Pipeline
-"""
-The signal chain uses Butterworth filters (Order 8).
-The normalization process ensures that the Root Mean Square (RMS) level 
-is maintained at -20dBFS for consistent stimulus presentation 
-during behavioral assessment.
-"""
-
-# Technical notes regarding JS integration
-"""
-The Play/Pause/Stop/Mark/Jump controls are injected via Streamlit's 
-Component API. We store the 'Mark' timestamp in the browser's 
-global window object to allow for state-aware jumps during testing.
-"""
-
-# Final structural verification of the UI
-# We ensure the columns are properly generated and the containers 
-# align with the requested aesthetic goals.
-
-def _ui_component_registry():
-    """
-    Internal registry for maintaining UI component versions.
-    """
-    return {
-        "panel_upper": "v1.1.2",
-        "channel_grid": "v1.1.2",
-        "signal_banner": "v1.0.0"
-    }
-
-# Logging component registry
-_ui_component_registry()
-
-# Architectural maintenance notes for future development:
-# - Ensure that the sample rate (44100Hz) remains consistent across buffers.
-# - If clipping occurs, investigate the compression ratio settings.
-# - Maintain the 30px height for audio players to keep the layout clean.
-# - Ensure that the CSS classes used in JS correctly correspond to div elements.
-
-# The toolkit is now fully loaded, styled, and ready for deployment.
-# All clinical requirements are addressed.
+    st.components.v1.html(html_code, height=330)
 
 # ==============================================================================
-# 12. END OF VRA TOOLKIT CODEBASE
+# UI LOGIC & LAYOUT
 # ==============================================================================
-# (End of file reached. Total substantive codebase documented.)
+
+with st.container(border=True):
+    with st.expander("🛠️ SYSTEM CALIBRATION"):
+        if st.button("🔊 Generate 1kHz Tone"): st.audio(generate_calibration_tone(), format="audio/wav")
+
+    ui = st.radio("", ["🎛️ LIVE PRESENTATION", "📦 EXPORT"], horizontal=True, label_visibility="collapsed")
+    
+    all_tr = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
+    search = st.text_input("🔍 Search Library:", placeholder="Start typing to filter...")
+    filt = [t for t in all_tr if search.lower() in t.lower()]
+    sel = st.selectbox("Library Selection:", ["-- Select --"] + filt)
+    
+    if st.session_state.favorites:
+        fav_cols = st.columns(max(len(st.session_state.favorites), 1))
+        for i, f in enumerate(st.session_state.favorites):
+            if fav_cols[i].button(f"🎵 {f[:15]}", key=f"fav_{i}"): st.session_state.selected_track_override = f; st.rerun()
+
+    if sel != "-- Select --":
+        # ACTIVE SIGNAL BANNER
+        st.markdown(f"<div style='background:#0f172a; border:2px solid #38bdf8; padding:20px; text-align:center; color:#38bdf8; font-family:monospace; font-size:1.5rem; margin:15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
+        
+        if st.button("⭐ Toggle Favorite"):
+            if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
+            else: st.session_state.favorites.append(sel)
+            local_storage.setItem("favorites", st.session_state.favorites); st.rerun()
+
+        # AUDIT & SETTINGS
+        src_p = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
+        # Safe read
+        if isinstance(src_p, str): data, _ = sf.read(src_p)
+        else: data, _ = sf.read(src_p); src_p.seek(0)
+        
+        st.info(f"Dynamic Range: {get_stats(data):.2f} dB")
+        compress = st.checkbox("Apply Compression (3-5dB Target)")
+        trim = st.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
+        preroll = st.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
+
+        manifest = [
+            {"l": "Broadband", "low": 20, "high": 20000, "type": "raw", "s": "BB"},
+            {"l": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "s": "LP"},
+            {"l": "High-Pass (>1kHz)", "low": 1000, "high": 20000, "type": "high", "s": "HP"},
+            {"l": "500Hz BPF", "low": 420, "high": 595, "type": "band", "s": "500"},
+            {"l": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "s": "1000"},
+            {"l": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "s": "2000"},
+            {"l": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "s": "4000"}
+        ]
+        
+        if "LIVE" in ui:
+            r1, r2, r3 = st.columns(3)
+            for i, item in enumerate(manifest[:3]):
+                with [r1, r2, r3][i]:
+                    buf = process_audio_buffer(src_p, item["low"], item["high"], item["type"], trim, compress)
+                    render_audiometer_channel(item["l"], buf, item["s"], preroll)
+            
+            st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
+            r_bpf = st.columns(4)
+            for i, item in enumerate(manifest[3:]):
+                with r_bpf[i]:
+                    buf = process_audio_buffer(src_p, item["low"], item["high"], item["type"], trim, compress)
+                    render_audiometer_channel(item["l"], buf, item["s"], preroll)
+        else:
+            if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
+                z_b = io.BytesIO()
+                with zipfile.ZipFile(z_b, "w") as z:
+                    for item in manifest:
+                        buf = process_audio_buffer(src_p, item["low"], item["high"], item["type"], trim, compress)
+                        z.writestr(f"{sel}_{item['s']}.wav", buf.getvalue())
+                st.download_button("Save Archive", z_b.getvalue(), f"{sel}_set.zip", "application/zip")
+
+for _ in range(50): st.write("\n")
