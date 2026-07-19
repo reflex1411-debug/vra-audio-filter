@@ -4,15 +4,15 @@ import soundfile as sf
 from scipy.signal import butter, sosfilt
 from pydub import AudioSegment
 import io
+import zipfile
 import os
 import base64
 from streamlit_local_storage import LocalStorage
 
 # ==============================================================================
-# 1. CONFIGURATION & INITIALIZATION
+# CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
-# Set wide layout for the clinical faceplate
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -34,18 +34,14 @@ if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
 # ==============================================================================
-# 2. CSS & STYLE INJECTION
+# CSS & STYLE INJECTION
 # ==============================================================================
 
 st.markdown("""
     <style>
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
-        .card { 
-            background: #1e293b; border: 1px solid #334155; 
-            border-radius: 12px; padding: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            margin-bottom: 10px;
-        }
+        audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin-bottom: 12px; padding: 0 40px; border-bottom: 2px solid #fbbf24;
@@ -66,11 +62,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. AUDIO PROCESSING ENGINE
+# AUDIO PROCESSING ENGINE
 # ==============================================================================
 
 def butter_filter_sos(low, high, fs, filter_type='band', order=8):
-    """Calculates Butterworth filter coefficients."""
     nyq = 0.5 * fs
     if filter_type == 'low': sos = butter(order, high/nyq, btype='low', output='sos')
     elif filter_type == 'high': sos = butter(order, low/nyq, btype='high', output='sos')
@@ -78,11 +73,9 @@ def butter_filter_sos(low, high, fs, filter_type='band', order=8):
     return sos
 
 def calculate_rms(data):
-    """Calculates Root Mean Square of audio data."""
     return np.sqrt(np.mean(data**2))
 
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
-    """Normalizes audio to target RMS level."""
     current_rms = calculate_rms(data)
     if current_rms == 0: return data
     target_linear = 10 ** (target_db / 20.0)
@@ -94,7 +87,6 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     return normalized_data
 
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
-    """Generates a 1kHz calibration sine wave."""
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
     data = rms_normalize(data, target_db=-20.0)
@@ -104,7 +96,6 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     return virtual_file
 
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False):
-    """Loads, filters, and normalizes audio buffers with software compression."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -131,7 +122,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
 
-    # 3-5dB Soft Limiter (Dynamic Range Compression)
+    # 3-5dB Compression (Soft Limiter)
     if compress:
         filtered_data = np.tanh(filtered_data * 2.5) * 0.45
 
@@ -141,8 +132,70 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     virtual_file.seek(0)
     return virtual_file
 
+def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
+    audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
+    audio_src = f"data:audio/wav;base64,{audio_base64}"
+    
+    html_code = f"""
+    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
+        
+        <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
+            {"".join(['<div class="vu_bar_' + element_key + '" style="flex: 1; height: 10%; background-color: #10b981; border-radius: 1px; transition: height 0.05s ease;"></div>' for _ in range(32)])}
+        </div>
+
+        <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
+            <button onclick="var a = document.getElementById('audio_{element_key}'); if(a.paused) {{ a.play(); }} else {{ a.pause(); }}" style="background-color: #10b981; color: white; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">▶️ PLAY / ⏸️ PAUSE</button>
+            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+            <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
+            <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
+        </div>
+
+        <script>
+            (function() {{
+                const audio = document.getElementById('audio_{element_key}');
+                const bars = document.querySelectorAll('.vu_bar_{element_key}');
+                let audioCtx, analyser, dataArray, source;
+                audio.addEventListener('play', async () => {{
+                    if (!audioCtx) {{
+                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        await audioCtx.resume();
+                        analyser = audioCtx.createAnalyser();
+                        source = audioCtx.createMediaElementSource(audio);
+                        source.connect(analyser);
+                        analyser.connect(audioCtx.destination);
+                        analyser.fftSize = 2048; 
+                        dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    }}
+                    function update() {{
+                        if (!audio.paused) {{
+                            analyser.getByteFrequencyData(dataArray);
+                            for (let i = 0; i < 32; i++) {{
+                                const val = (dataArray[i * 4] || 0) / 255.0;
+                                const bar = bars[i];
+                                const currentH = parseFloat(bar.style.height);
+                                const targetH = 10 + (val * 90);
+                                bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
+                                bar.style.opacity = 0.3 + (val * 0.7);
+                            }}
+                            requestAnimationFrame(update);
+                        }}
+                    }}
+                    update();
+                }});
+            }})();
+        </script>
+    </div>
+    """
+    st.components.v1.html(html_code, height=365)
+
 # ==============================================================================
-# 4. UI LOGIC & LAYOUT
+# UI LOGIC & LAYOUT
 # ==============================================================================
 
 with st.container(border=True):
@@ -153,22 +206,41 @@ with st.container(border=True):
             st.success("Calibration active.")
 
     ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
+    
+    # Compression toggle for steady signal
     compress_toggle = st.checkbox("Enable 3-5dB Dynamic Range Compression")
+    
     st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
 
-    all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))]
+    all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
+    
     search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
     filtered = [t for t in all_tracks if search.lower() in t.lower()]
     sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
     
+    if st.session_state.favorites:
+        st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK]</div>", unsafe_allow_html=True)
+        fav_cols = st.columns(max(len(st.session_state.favorites), 1))
+        for i, fav in enumerate(st.session_state.favorites):
+            with fav_cols[i]:
+                if st.button(f"🎵 {fav[:15]}...", key=f"fav_btn_{fav}"):
+                    st.session_state.selected_track_override = fav
+                    st.rerun()
+
     if sel != "-- Select Track from Bank --":
         st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
+        if st.button("⭐ Toggle Favorite"):
+            if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
+            else: st.session_state.favorites.append(sel)
+            local_storage.setItem("favorites", st.session_state.favorites)
+            st.rerun()
+
         c1, c2 = st.columns(2)
         trim = c1.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
         preroll = c2.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
 
-        active_source = os.path.join(LIBRARY_DIR, sel)
+        active_source = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
         manifest = [
             {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
             {"label": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
@@ -179,28 +251,20 @@ with st.container(border=True):
             {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000"}
         ]
         
-        # Rendering
         if "LIVE LINE-IN" in ui_mode:
             r1_c1, r1_c2, r1_c3 = st.columns(3)
-            # Row 1 Rendering
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
-                    st.markdown(f"<div class='card'><strong>{item['label']}</strong>", unsafe_allow_html=True)
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
-                    st.audio(buf, format="audio/wav")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
-            
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-            # Row 2 Rendering
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    st.markdown(f"<div class='card'><strong>{item['label']}</strong>", unsafe_allow_html=True)
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
-                    st.audio(buf, format="audio/wav")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
+        
         else: # EXPORT MODE
             if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
                 zip_b = io.BytesIO()
