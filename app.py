@@ -188,7 +188,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
-                            // Linearly map the low-end of the spectrum (0-8kHz) across the 32 bars
+                            // Linearly map the low-end of the spectrum (250-6kHz) across the 32 bars
                             // This provides a consistent, representative view for all filter types
                             for (let i = 0; i < 32; i++) {{
                                 const val = (dataArray[i * 4] || 0) / 255.0;
@@ -258,7 +258,7 @@ with st.container(border=True):
         manifest = [
             {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
             {"label": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
-            {"label": "High-Pass (>1kHz)", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
+            {"label": "High-Pass (>1kHz)", "low": 1000, "high": 16000, "type": "high", "suffix": "HP"},
             {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500"},
             {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000"},
             {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000"},
