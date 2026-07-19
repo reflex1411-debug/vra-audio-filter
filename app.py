@@ -110,7 +110,7 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     virtual_file.seek(0)
     return virtual_file
 
-def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0):
+def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False):
     """Loads, filters, and normalizes audio buffers."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
@@ -137,6 +137,10 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
             for channel in range(data.shape[1]): filtered_data[:, channel] = sosfilt(sos, data[:, channel])
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
+
+    # Apply 3-5dB compression (soft clipping/limiting)
+    if compress:
+        filtered_data = np.clip(filtered_data, -0.3, 0.3)
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
     virtual_file = io.BytesIO()
@@ -182,14 +186,12 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048; // Full spectrum resolution
+                        analyser.fftSize = 2048; 
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
-                            // Linearly map the low-end of the spectrum (0-8kHz) across the 32 bars
-                            // This provides a consistent, representative view for all filter types
                             for (let i = 0; i < 32; i++) {{
                                 const val = (dataArray[i * 4] || 0) / 255.0;
                                 const bar = bars[i];
@@ -244,15 +246,16 @@ with st.container(border=True):
         # ACTIVE SIGNAL MONITOR
         st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
-        if st.button("⭐ Toggle Favorite"):
+        c1, c2, c3 = st.columns(3)
+        if c1.button("⭐ Toggle Favorite"):
             if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
             else: st.session_state.favorites.append(sel)
             local_storage.setItem("favorites", st.session_state.favorites)
             st.rerun()
 
-        c1, c2 = st.columns(2)
-        trim = c1.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
-        preroll = c2.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
+        trim = c2.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
+        preroll = c3.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
+        compress = st.checkbox("Apply 3-5dB Dynamic Range Compression")
 
         active_source = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
         manifest = [
@@ -269,14 +272,14 @@ with st.container(border=True):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
         
         else: # EXPORT MODE
@@ -284,9 +287,8 @@ with st.container(border=True):
                 zip_b = io.BytesIO()
                 with zipfile.ZipFile(zip_b, "w") as z:
                     for item in manifest:
-                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim)
+                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
                         z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
-# Maintain structural line padding
 for _ in range(55): st.write("\n")
