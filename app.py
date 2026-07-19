@@ -145,7 +145,7 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     return virtual_file
 
 def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
-    """Injects HTML5 audio components with interactive playback controls and linear FFT analyzer."""
+    """Injects HTML5 audio components with interactive playback controls and prominence-boosted FFT."""
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
@@ -182,21 +182,24 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048; // Full spectrum resolution
+                        analyser.fftSize = 2048; 
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
-                            // Linearly map the low-end of the spectrum (0-8kHz) across the 32 bars
-                            // This provides a consistent, representative view for all filter types
                             for (let i = 0; i < 32; i++) {{
                                 const val = (dataArray[i * 4] || 0) / 255.0;
+                                // Apply prominence boost to high-freq indices (where 2k/4k live)
+                                let boost = 1.0;
+                                if (i > 24) boost = 1.7; // 4k range boost
+                                else if (i > 16) boost = 1.3; // 2k range boost
+                                const finalVal = Math.min(1.0, val * boost);
                                 const bar = bars[i];
                                 const currentH = parseFloat(bar.style.height);
-                                const targetH = 10 + (val * 90);
+                                const targetH = 10 + (finalVal * 90);
                                 bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
-                                bar.style.opacity = 0.3 + (val * 0.7);
+                                bar.style.opacity = 0.3 + (finalVal * 0.7);
                             }}
                             requestAnimationFrame(update);
                         }}
