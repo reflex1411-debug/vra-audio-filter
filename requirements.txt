@@ -5,3 +5,4 @@ pydub
 soundfile
 streamlit-local-storage
 audioop-lts
+yt-dlp
