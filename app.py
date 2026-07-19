@@ -11,7 +11,7 @@ import base64
 from streamlit_local_storage import LocalStorage
 
 # ==============================================================================
-# CONFIGURATION & INITIALIZATION
+# 1. CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
 # Set wide layout to establish a comprehensive dual-channel audiometer faceplate
@@ -42,7 +42,7 @@ if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
 # ==============================================================================
-# CSS & STYLE INJECTION
+# 2. CSS & STYLE INJECTION
 # ==============================================================================
 
 st.markdown("""
@@ -50,12 +50,21 @@ st.markdown("""
         /* Base page grounding mimicking hardware metal casing */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+        
+        /* Clinical rounded-square card styling */
+        .card { 
+            background-color: #1e293b; border: 1px solid #334155; 
+            border-radius: 12px; padding: 16px; margin-bottom: 12px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; 
+        }
+        
         /* Audio player styling */
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
+        
         /* Audiogram ruler styling */
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
-            color: #fbbf24; margin-bottom: 12px; padding: 0 40px; border-bottom: 2px solid #fbbf24;
+            color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
     </style>
     
@@ -74,7 +83,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# AUDIO PROCESSING ENGINE
+# 3. AUDIO PROCESSING ENGINE
 # ==============================================================================
 
 def butter_filter_sos(low, high, fs, filter_type='band', order=8):
@@ -111,8 +120,8 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     virtual_file.seek(0)
     return virtual_file
 
-def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False):
-    """Loads, filters, and normalizes audio buffers with advanced clinical compression."""
+def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False, add_noise=False):
+    """Loads, filters, normalizes, and optionally compresses/adds noise to audio buffers."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -139,18 +148,18 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
 
-    # AGGRESSIVE CLINICAL COMPRESSION (True dynamic leveling)
+    # Constant Noise Floor Addition (NBN background)
+    if add_noise:
+        noise = np.random.normal(0, 0.05, len(filtered_data))
+        if filter_type != 'raw':
+            noise = sosfilt(sos, noise)
+        filtered_data = filtered_data + (noise * 0.1)
+
+    # Clinical Compression (Ratio 8:1, Threshold -25dB for steady output)
     if compress:
-        # Convert to Pydub AudioSegment for true ratio compression
         int_data = (filtered_data * 32767).astype(np.int16)
-        audio_seg = AudioSegment(
-            int_data.tobytes(), frame_rate=int(fs), 
-            sample_width=2, channels=1
-        )
-        # Ratio 8.0, Threshold -25dB provides the 'steady' clinical output needed
-        audio_seg = effects.compress_dynamic_range(
-            audio_seg, threshold=-25.0, ratio=8.0, attack=5.0, release=150.0
-        )
+        audio_seg = AudioSegment(int_data.tobytes(), frame_rate=int(fs), sample_width=2, channels=1)
+        audio_seg = effects.compress_dynamic_range(audio_seg, threshold=-25.0, ratio=8.0, attack=5.0, release=150.0)
         filtered_data = np.array(audio_seg.get_array_of_samples(), dtype=np.float32) / 32768.0
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
@@ -160,12 +169,12 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
     return virtual_file
 
 def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
-    """Injects HTML5 audio components with interactive playback controls and linear FFT analyzer."""
+    """Injects HTML5 audio components with interactive playback controls and FFT visualizer."""
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
     html_code = f"""
-    <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
+    <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
         
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
@@ -197,7 +206,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048;
+                        analyser.fftSize = 2048; 
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
@@ -234,7 +243,11 @@ with st.container(border=True):
             st.success("Calibration active.")
 
     ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
-    compress_toggle = st.checkbox("Enable 3-5dB Dynamic Range Compression")
+    
+    # Clinical processing toggles
+    compress_toggle = st.checkbox("Enable Dynamic Range Compression")
+    noise_toggle = st.checkbox("Enable Constant Noise Floor (NBN)")
+    
     st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
 
     all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
@@ -283,14 +296,14 @@ with st.container(border=True):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=noise_toggle)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=noise_toggle)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
         
         else: # EXPORT MODE
@@ -298,7 +311,7 @@ with st.container(border=True):
                 zip_b = io.BytesIO()
                 with zipfile.ZipFile(zip_b, "w") as z:
                     for item in manifest:
-                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
+                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, add_noise=noise_toggle)
                         z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
