@@ -56,6 +56,27 @@ st.markdown("""
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
+
+        /* Marquee Animation for Active Signal */
+        .marquee {
+            width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+            box-sizing: border-box;
+            background: #0f172a; 
+            border: 2px solid #38bdf8; 
+            border-radius: 12px; 
+            padding: 20px;
+        }
+        .marquee span {
+            display: inline-block;
+            padding-left: 100%;
+            animation: marquee 15s linear infinite;
+        }
+        @keyframes marquee {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(-100%, 0); }
+        }
     </style>
     
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
@@ -232,7 +253,7 @@ tab1, tab2, tab3 = st.tabs(["🎛️ PRESENTATION DESK", "📦 EXPORT & DOWNLOAD
 with tab3:
     st.subheader("⚙️ Expert Filter Settings")
     st.session_state.filter_order = st.slider("Filter Order (Butterworth steepness)", 2, 16, 8, 2)
-    st.session_state.fft_gain = st.slider("FFT Visualizer Sensitivity (Boost 4kHz)", 0.5, 5.0, 1.0, 0.1)
+    st.session_state.fft_gain = st.slider("FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1)
 
 with tab1:
     with st.container(border=True):
@@ -270,8 +291,10 @@ with tab1:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], order=st.session_state.filter_order, trim=trim, compress=compress_toggle, noise_gain=noise_gain)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll, st.session_state.fft_gain)
             
-            # --- ACTIVE SIGNAL INDICATOR (Moved here per user request) ---
-            st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
+            # --- ACTIVE SIGNAL INDICATOR (Animated Scrolling) ---
+            st.markdown(f"""
+                <div class='marquee'><span>ACTIVE SIGNAL: {sel}</span></div>
+            """, unsafe_allow_html=True)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             
