@@ -111,7 +111,7 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     return virtual_file
 
 def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0, compress=False):
-    """Loads, filters, and normalizes audio buffers."""
+    """Loads, filters, normalizes, and optionally compresses audio buffers."""
     if isinstance(file_source, str):
         with open(file_source, 'rb') as f: file_bytes = f.read()
         is_mp3 = file_source.lower().endswith('.mp3')
@@ -137,10 +137,11 @@ def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='ba
             for channel in range(data.shape[1]): filtered_data[:, channel] = sosfilt(sos, data[:, channel])
         else: filtered_data = sosfilt(sos, data)
     else: filtered_data = data
-
-    # Apply 3-5dB compression (soft clipping/limiting)
+    
+    # 3-5dB Dynamic Range Compression (Soft Limiter)
     if compress:
-        filtered_data = np.clip(filtered_data, -0.3, 0.3)
+        # Applying hyperbolic tangent for soft knee compression
+        filtered_data = np.tanh(filtered_data * 2.5) * 0.45
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
     virtual_file = io.BytesIO()
@@ -223,11 +224,14 @@ with st.container(border=True):
             st.success("Calibration active.")
 
     ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
+    
+    # NEW COMPRESSION TOGGLE
+    compress_toggle = st.checkbox("Enable 3-5dB Dynamic Range Compression")
+    
     st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
 
     all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
     
-    # SEARCHABLE LIBRARY
     search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
     filtered = [t for t in all_tracks if search.lower() in t.lower()]
     sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
@@ -243,19 +247,11 @@ with st.container(border=True):
                     st.rerun()
 
     if sel != "-- Select Track from Bank --":
-        # ACTIVE SIGNAL MONITOR
         st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
-        c1, c2, c3 = st.columns(3)
-        if c1.button("⭐ Toggle Favorite"):
-            if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
-            else: st.session_state.favorites.append(sel)
-            local_storage.setItem("favorites", st.session_state.favorites)
-            st.rerun()
-
-        trim = c2.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
-        preroll = c3.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
-        compress = st.checkbox("Apply 3-5dB Dynamic Range Compression")
+        c1, c2 = st.columns(2)
+        trim = c1.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
+        preroll = c2.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
 
         active_source = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
         manifest = [
@@ -272,14 +268,14 @@ with st.container(border=True):
             r1_c1, r1_c2, r1_c3 = st.columns(3)
             for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
                 with [r1_c1, r1_c2, r1_c3][i % 3]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
             r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
             for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
                 with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
         
         else: # EXPORT MODE
@@ -287,7 +283,7 @@ with st.container(border=True):
                 zip_b = io.BytesIO()
                 with zipfile.ZipFile(zip_b, "w") as z:
                     for item in manifest:
-                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress)
+                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle)
                         z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
