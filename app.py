@@ -15,7 +15,6 @@ from streamlit_local_storage import LocalStorage
 # 1. CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
-# Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -23,21 +22,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Initialize LocalStorage client for persisting user preferences across sessions
 local_storage = LocalStorage()
-
-# Define the library directory constant for file path references
 LIBRARY_DIR = "library"
 
-# Ensure local persistence folder exists for storing library files
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
-# Initialize system memory cache for tracking current loaded session tracks
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
-# Initialize system memory cache for favorite tracks tracking
 stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
@@ -51,24 +44,20 @@ st.markdown("""
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
-        /* Clinical rounded-square card styling */
         .card { 
             background-color: #1e293b; border: 1px solid #334155; 
             border-radius: 12px; padding: 16px; margin-bottom: 12px; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; 
         }
         
-        /* Audio player styling */
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
         
-        /* Audiogram ruler styling */
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
     </style>
     
-    <!-- Faceplate Main Header -->
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
@@ -87,9 +76,9 @@ st.markdown("""
 # ==============================================================================
 
 def download_youtube_audio(url, cookie_path=None):
-    """Downloads audio from YouTube with permissive format selection."""
+    """Downloads audio from YouTube using permissive format settings."""
     ydl_opts = {
-        'format': 'bestaudio/best', # More permissive fallback
+        'format': 'bestaudio', # Most permissive for audio streams
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav', 'preferredquality': '192'}],
         'outtmpl': 'library/yt_download.%(ext)s',
         'nocheckcertificate': True,
@@ -258,15 +247,82 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
 # 4. UI LOGIC & LAYOUT
 # ==============================================================================
 
-with st.container(border=True):
-    with st.expander("🛠️ SYSTEM CALIBRATION & TRANSDUCER CHECK"):
-        if st.button("🔊 GENERATE 1kHz CALIBRATION TONE (-20dBFS)"):
-            cal_buffer = generate_calibration_tone()
-            st.audio(cal_buffer, format="audio/wav")
-            st.success("Calibration active.")
+# Create Tabs for cleaner organization
+tab1, tab2 = st.tabs(["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 EXPORT & YOUTUBE DOWNLOADER"])
 
-    # YouTube URL Input Section with Cookie Upload
-    yt_url = st.text_input("🔗 Or input YouTube URL to load track:")
+with tab1:
+    with st.container(border=True):
+        with st.expander("🛠️ SYSTEM CALIBRATION & TRANSDUCER CHECK"):
+            if st.button("🔊 GENERATE 1kHz CALIBRATION TONE (-20dBFS)"):
+                cal_buffer = generate_calibration_tone()
+                st.audio(cal_buffer, format="audio/wav")
+                st.success("Calibration active.")
+
+        # Clinical processing toggles
+        compress_toggle = st.checkbox("Enable Dynamic Range Compression")
+        noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
+        
+        st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
+
+        all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
+        
+        # SEARCHABLE LIBRARY
+        search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
+        filtered = [t for t in all_tracks if search.lower() in t.lower()]
+        sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
+        
+        # FAVORITES DECK
+        if st.session_state.favorites:
+            st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK]</div>", unsafe_allow_html=True)
+            fav_cols = st.columns(max(len(st.session_state.favorites), 1))
+            for i, fav in enumerate(st.session_state.favorites):
+                with fav_cols[i]:
+                    if st.button(f"🎵 {fav[:15]}...", key=f"fav_btn_{fav}"):
+                        st.session_state.selected_track_override = fav
+                        st.rerun()
+
+        if sel != "-- Select Track from Bank --":
+            st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
+            
+            if st.button("⭐ Toggle Favorite"):
+                if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
+                else: st.session_state.favorites.append(sel)
+                local_storage.setItem("favorites", st.session_state.favorites)
+                st.rerun()
+
+            c1, c2 = st.columns(2)
+            trim = c1.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
+            preroll = c2.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
+
+            active_source = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
+            manifest = [
+                {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
+                {"label": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
+                {"label": "High-Pass (>1kHz)", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
+                {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500"},
+                {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000"},
+                {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000"},
+                {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000"}
+            ]
+            
+            r1_c1, r1_c2, r1_c3 = st.columns(3)
+            for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
+                with [r1_c1, r1_c2, r1_c3][i % 3]:
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
+            
+            st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
+            r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
+            for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
+                with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
+                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
+                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
+
+with tab2:
+    st.subheader("📦 Bulk Export & YouTube Downloader")
+    
+    # YouTube URL Input Section
+    yt_url = st.text_input("🔗 Input YouTube URL to load track:")
     cookie_file = st.file_uploader("Upload cookies.txt (optional, to avoid bot detection)", type=["txt"])
     
     if yt_url:
@@ -281,77 +337,15 @@ with st.container(border=True):
                     st.success("YouTube audio ready in library.")
                     st.rerun()
 
-    ui_mode = st.radio("", ["🎛️ LIVE LINE-IN PRESENTATION DESK", "📦 BULK EXPORT & FILE DOWNLOAD CENTER"], horizontal=True, label_visibility="collapsed")
-    
-    # Clinical processing toggles
-    compress_toggle = st.checkbox("Enable Dynamic Range Compression")
-    noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
-    
-    st.markdown("<hr style='margin: 8px 0; border-color: #1e293b;' />", unsafe_allow_html=True)
-
-    all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
-    
-    # SEARCHABLE LIBRARY
-    search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
-    filtered = [t for t in all_tracks if search.lower() in t.lower()]
-    sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
-    
-    # FAVORITES DECK
-    if st.session_state.favorites:
-        st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK]</div>", unsafe_allow_html=True)
-        fav_cols = st.columns(max(len(st.session_state.favorites), 1))
-        for i, fav in enumerate(st.session_state.favorites):
-            with fav_cols[i]:
-                if st.button(f"🎵 {fav[:15]}...", key=f"fav_btn_{fav}"):
-                    st.session_state.selected_track_override = fav
-                    st.rerun()
-
+    # Bulk Export Logic
     if sel != "-- Select Track from Bank --":
-        # ACTIVE SIGNAL MONITOR
-        st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
-        
-        if st.button("⭐ Toggle Favorite"):
-            if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
-            else: st.session_state.favorites.append(sel)
-            local_storage.setItem("favorites", st.session_state.favorites)
-            st.rerun()
-
-        c1, c2 = st.columns(2)
-        trim = c1.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
-        preroll = c2.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
-
-        active_source = os.path.join(LIBRARY_DIR, sel) if sel in os.listdir(LIBRARY_DIR) else io.BytesIO(st.session_state.session_tracks[sel])
-        manifest = [
-            {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
-            {"label": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
-            {"label": "High-Pass (>1kHz)", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
-            {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500"},
-            {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000"},
-            {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000"},
-            {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000"}
-        ]
-        
-        if "LIVE LINE-IN" in ui_mode:
-            r1_c1, r1_c2, r1_c3 = st.columns(3)
-            for i, item in enumerate([m for m in manifest if "BPF" not in m["label"] and "raw" not in m["type"] or m["label"] == "Broadband"]):
-                with [r1_c1, r1_c2, r1_c3][i % 3]:
+        if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
+            zip_b = io.BytesIO()
+            with zipfile.ZipFile(zip_b, "w") as z:
+                # Re-calculate on the fly for export
+                for item in manifest:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
-                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
-            
-            st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
-            r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-            for i, item in enumerate([m for m in manifest if "BPF" in m["label"]]):
-                with [r2_c1, r2_c2, r2_c3, r2_c4][i]:
-                    buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
-                    render_audiometer_channel(item["label"], buf, item["suffix"], preroll)
-        
-        else: # EXPORT MODE
-            if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
-                zip_b = io.BytesIO()
-                with zipfile.ZipFile(zip_b, "w") as z:
-                    for item in manifest:
-                        buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], trim=trim, compress=compress_toggle, noise_gain=noise_gain)
-                        z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
-                st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
+                    z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
+            st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
 for _ in range(55): st.write("\n")
