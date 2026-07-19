@@ -14,7 +14,6 @@ from streamlit_local_storage import LocalStorage
 # ==============================================================================
 
 # Set wide layout to establish a comprehensive dual-channel audiometer faceplate
-# This ensures that the instrument UI has adequate horizontal space for layout
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -150,6 +149,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
     audio_base64 = base64.b64encode(audio_buffer.getvalue()).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
     
+    # JavaScript tuned to zoom into the requested frequency window
     html_code = f"""
     <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center;">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
@@ -189,8 +189,15 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset, 
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
+                            const binSize = 44100 / 2048;
+                            const startBin = Math.floor({min_hz} / binSize);
+                            const endBin = Math.floor({max_hz} / binSize);
+                            const binsPerBar = Math.max(1, (endBin - startBin) / 32);
+                            
                             bars.forEach((bar, i) => {{
-                                const val = (dataArray[i * 2] || 0) / 255.0;
+                                let sum = 0;
+                                for(let j=0; j<binsPerBar; j++) {{ sum += dataArray[startBin + Math.floor(i * binsPerBar) + j]; }}
+                                const val = (sum / binsPerBar) / 255.0;
                                 const currentH = parseFloat(bar.style.height);
                                 const targetH = 10 + (val * 90);
                                 bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
@@ -287,4 +294,4 @@ with st.container(border=True):
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
 # Maintain structural line padding
-for _ in range(25): st.write("\n")
+for _ in range(50): st.write("\n")
