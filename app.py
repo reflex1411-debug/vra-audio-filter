@@ -57,28 +57,30 @@ st.markdown("""
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
 
-        /* Animated Marquee - High Visibility */
+        /* Dot Matrix Narrow Marquee */
         .marquee {
             width: 100%;
             overflow: hidden;
             white-space: nowrap;
             box-sizing: border-box;
-            background: #0f172a; 
+            background: #000; 
             border: 2px solid #38bdf8; 
-            border-radius: 12px; 
-            padding: 25px;
-            margin: 15px 0;
+            border-radius: 4px; 
+            padding: 8px 15px;
+            height: 50px;
+            display: flex;
+            align-items: center;
         }
         .marquee span {
             display: inline-block;
             padding-left: 100%;
-            animation: marquee 15s linear infinite;
-            font-family: monospace;
-            font-size: 1.8rem;
+            animation: marquee 12s linear infinite;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.6rem;
             font-weight: 700;
             color: #38bdf8;
+            text-shadow: 0 0 8px #38bdf8;
             text-transform: uppercase;
-            letter-spacing: 2px;
         }
         @keyframes marquee {
             0% { transform: translate(0, 0); }
@@ -298,9 +300,9 @@ with tab1:
                     buf = process_audio_buffer(active_source, item["low"], item["high"], item["type"], order=st.session_state.filter_order, trim=trim, compress=compress_toggle, noise_gain=noise_gain)
                     render_audiometer_channel(item["label"], buf, item["suffix"], preroll, st.session_state.fft_gain)
             
-            # --- ANIMATED ACTIVE SIGNAL INDICATOR ---
+            # --- ANIMATED ACTIVE SIGNAL INDICATOR (Scrolling only) ---
             st.markdown(f"""
-                <div class='marquee'><span>ACTIVE SIGNAL: {sel}</span></div>
+                <div class='marquee'><span>{sel}</span></div>
             """, unsafe_allow_html=True)
             
             st.markdown("<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>", unsafe_allow_html=True)
