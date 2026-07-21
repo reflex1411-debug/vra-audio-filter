@@ -154,7 +154,7 @@ def calculate_rms(data):
 
 
 def calculate_audio_metrics(data):
-    """Calculates Peak, RMS, and Crest Factor (Dynamic Range Span) in dBFS."""
+    """Calculates Peak, RMS, and Crest Factor in dBFS."""
     peak = np.max(np.abs(data))
     rms = calculate_rms(data)
 
@@ -169,34 +169,39 @@ def calculate_audio_metrics(data):
     }
 
 
-def apply_brickwall_limiter(data, target_rms_db=-20.0, max_crest_factor_db=3.0):
-    """Clamps peak envelope so peak-to-RMS variance stays strictly within target dBA window."""
+def apply_soft_knee_limiter(
+    data, target_rms_db=-20.0, max_crest_factor_db=3.5, distortion_knee=1.2
+):
+    """Soft-knee dynamic limiter using hyperbolic tangent (tanh) to prevent digital clipping distortion."""
     rms = calculate_rms(data)
     if rms == 0:
         return data
 
-    # 1. Normalize RMS to Target level
+    # 1. Normalize RMS to Target level (-20 dBFS)
     target_linear = 10 ** (target_rms_db / 20.0)
-    gain = target_linear / rms
-    data_norm = data * gain
+    data_norm = data * (target_linear / rms)
 
-    # 2. Hard Peak Clamping to constrain crest factor
-    max_peak_allowed = target_linear * (10 ** (max_crest_factor_db / 20.0))
-    data_limited = np.clip(data_norm, -max_peak_allowed, max_peak_allowed)
+    # 2. Smooth Tanh Soft-Clipping (eliminates harsh square-wave clipping)
+    threshold = target_linear * (10 ** (max_crest_factor_db / 20.0))
+    normalized_peaks = data_norm / threshold
 
-    # 3. Final RMS recalibration after peak limiting
-    final_rms = calculate_rms(data_limited)
+    # Apply soft curve shaping
+    data_soft = np.tanh(normalized_peaks * distortion_knee) / distortion_knee
+    data_soft = data_soft * threshold
+
+    # 3. Final Recalibration & Dynamic Match
+    final_rms = calculate_rms(data_soft)
     if final_rms > 0:
-        data_limited = data_limited * (target_linear / final_rms)
+        data_soft = data_soft * (target_linear / final_rms)
 
-    return data_limited
+    return data_soft
 
 
 @st.cache_data(show_spinner=False)
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = apply_brickwall_limiter(
+    data = apply_soft_knee_limiter(
         data, target_rms_db=-20.0, max_crest_factor_db=3.0
     )
     virtual_file = io.BytesIO()
@@ -205,7 +210,7 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Applying VRA audio filtering & dynamic leveling..."
+    show_spinner="Processing ultra-low distortion VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
@@ -215,9 +220,10 @@ def process_audio_buffer(
     order=8,
     trim=0.0,
     compress=True,
-    comp_threshold=-30.0,
-    comp_ratio=16.0,
-    max_crest_factor=3.0,
+    comp_threshold=-22.0,
+    comp_ratio=8.0,
+    max_crest_factor=3.5,
+    distortion_knee=1.2,
     noise_gain=0.0,
 ):
     with open(file_path, "rb") as f:
@@ -263,7 +269,7 @@ def process_audio_buffer(
             noise = sosfilt(sos, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # 1. Multi-Stage Compression Pass
+    # 1. Smooth Dynamic Range Compression Pass (Moderate settings to preserve clarity)
     if compress:
         int_data = (np.clip(filtered_data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
@@ -274,8 +280,8 @@ def process_audio_buffer(
             audio_seg,
             threshold=comp_threshold,
             ratio=comp_ratio,
-            attack=1.0,
-            release=50.0,
+            attack=5.0,
+            release=100.0,
         )
 
         filtered_data = (
@@ -283,11 +289,12 @@ def process_audio_buffer(
             / 32768.0
         )
 
-    # 2. Strict Brickwall Limiting & RMS Loudness Calibration (-20 dBFS Target)
-    final_data = apply_brickwall_limiter(
+    # 2. Soft-Knee Tanh Peak Limiter (Prevents Distortion Spikes)
+    final_data = apply_soft_knee_limiter(
         filtered_data,
         target_rms_db=-20.0,
         max_crest_factor_db=max_crest_factor,
+        distortion_knee=distortion_knee,
     )
 
     # 3. Compute Metrics
@@ -317,9 +324,9 @@ def render_audiometer_channel(
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Clinical VRA Leveling Badge -->
+        <!-- Clinical Leveling & Distortion Metric Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
-            <span>Variance: <b style="color:#fbbf24;">±{metrics['dr_span_db']} dB</b></span>
+            <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']} dBFS</b></span>
             <span>RMS: <b>{metrics['rms_db']} dBFS</b></span>
         </div>
@@ -414,18 +421,20 @@ if "filter_order" not in st.session_state:
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
 if "comp_threshold" not in st.session_state:
-    st.session_state.comp_threshold = -30.0
+    st.session_state.comp_threshold = -22.0
 if "comp_ratio" not in st.session_state:
-    st.session_state.comp_ratio = 16.0
+    st.session_state.comp_ratio = 8.0
 if "max_crest_factor" not in st.session_state:
-    st.session_state.max_crest_factor = 3.0
+    st.session_state.max_crest_factor = 3.5
+if "distortion_knee" not in st.session_state:
+    st.session_state.distortion_knee = 1.2
 
 tab1, tab2, tab3 = st.tabs(
     ["🎛️ PRESENTATION DESK", "📦 EXPORT & DOWNLOADER", "⚙️ EXPERT CONFIG"]
 )
 
 with tab3:
-    st.subheader("⚙️ Expert Filter & VRA Leveling Settings")
+    st.subheader("⚙️ Expert Filter & Distortion Safeguard Settings")
     st.session_state.filter_order = st.slider(
         "Filter Order (Butterworth steepness)", 2, 16, 8, 2
     )
@@ -433,13 +442,16 @@ with tab3:
         "FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1
     )
     st.session_state.comp_threshold = st.slider(
-        "Compressor Threshold (dB)", -40.0, -10.0, -30.0, 1.0
+        "Compressor Threshold (dB)", -35.0, -10.0, -22.0, 1.0
     )
     st.session_state.comp_ratio = st.slider(
-        "Compressor Ratio", 2.0, 20.0, 16.0, 1.0
+        "Compressor Ratio", 2.0, 16.0, 8.0, 1.0
     )
     st.session_state.max_crest_factor = st.slider(
-        "Max Peak-to-RMS Variance Target (dB)", 1.0, 6.0, 3.0, 0.5
+        "Peak-to-RMS Window Ceiling (dB)", 2.0, 6.0, 3.5, 0.5
+    )
+    st.session_state.distortion_knee = st.slider(
+        "Soft-Clipping Curve (Distortion Mitigation)", 0.8, 2.0, 1.2, 0.1
     )
 
 with tab1:
@@ -451,7 +463,7 @@ with tab1:
                 st.success("Calibration active.")
 
         compress_toggle = st.checkbox(
-            "Enable VRA Dynamic Leveling & Equal-Loudness Lock", value=True
+            "Enable VRA Soft-Knee Leveling (Clean & Level Output)", value=True
         )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
@@ -559,6 +571,7 @@ with tab1:
                         comp_threshold=st.session_state.comp_threshold,
                         comp_ratio=st.session_state.comp_ratio,
                         max_crest_factor=st.session_state.max_crest_factor,
+                        distortion_knee=st.session_state.distortion_knee,
                         noise_gain=noise_gain,
                     )
                     render_audiometer_channel(
@@ -600,6 +613,7 @@ with tab1:
                         comp_threshold=st.session_state.comp_threshold,
                         comp_ratio=st.session_state.comp_ratio,
                         max_crest_factor=st.session_state.max_crest_factor,
+                        distortion_knee=st.session_state.distortion_knee,
                         noise_gain=noise_gain,
                     )
                     render_audiometer_channel(
@@ -644,6 +658,7 @@ with tab2:
                         comp_threshold=st.session_state.comp_threshold,
                         comp_ratio=st.session_state.comp_ratio,
                         max_crest_factor=st.session_state.max_crest_factor,
+                        distortion_knee=st.session_state.distortion_knee,
                         noise_gain=noise_gain,
                     )
                     z.writestr(f"{sel}_{item['suffix']}.wav", buf_bytes)
