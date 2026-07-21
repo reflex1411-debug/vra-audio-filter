@@ -35,6 +35,12 @@ stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
+# Calibration State Storage
+if "cal_measured_dba" not in st.session_state:
+    st.session_state.cal_measured_dba = 70.0
+if "cal_dial_level" not in st.session_state:
+    st.session_state.cal_dial_level = 70.0
+
 # ==============================================================================
 # 2. CSS & STYLE INJECTION
 # ==============================================================================
@@ -139,7 +145,6 @@ def download_youtube_audio(url, cookie_path=None):
 
 
 def butter_filter_sos(low, high, fs, filter_type="band", order=4):
-    """Generates SOS representation for zero-phase filtering."""
     nyq = 0.5 * fs
     if filter_type == "low":
         sos = butter(order, high / nyq, btype="low", output="sos")
@@ -157,7 +162,6 @@ def calculate_rms(data):
 
 
 def calculate_audio_metrics(data):
-    """Calculates Peak, RMS, and Crest Factor in dBFS."""
     peak = np.max(np.abs(data))
     rms = calculate_rms(data)
 
@@ -173,7 +177,6 @@ def calculate_audio_metrics(data):
 
 
 def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
-    """Performs RMS loudness matching across channels while preventing clipping."""
     current_rms = calculate_rms(data)
     if current_rms == 0:
         return data
@@ -192,7 +195,6 @@ def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
 def apply_soft_knee_limiter(
     data, target_rms_db=-20.0, max_crest_factor_db=3.5, distortion_knee=1.2
 ):
-    """Soft-knee dynamic limiter using hyperbolic tangent (tanh) to prevent digital clipping distortion."""
     rms = calculate_rms(data)
     if rms == 0:
         return data
@@ -226,14 +228,14 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Processing clean, zero-phase VRA audio matrix..."
+    show_spinner="Processing clean, matched-span VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=4,  # Effective order 8 after zero-phase filtfilt
+    order=4,
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -266,9 +268,7 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # =========================================================================
-    # STEP 1: DYNAMICS COMPRESSION & LIMITING (Applied BEFORE filtering)
-    # =========================================================================
+    # STEP 1: Dynamic Range Compression
     if compress:
         int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
@@ -288,7 +288,7 @@ def process_audio_buffer(
             / 32768.0
         )
 
-    # Soft-knee limiter locks Peak-to-RMS crest factor
+    # Soft-Knee Limiter
     data = apply_soft_knee_limiter(
         data,
         target_rms_db=-20.0,
@@ -296,10 +296,7 @@ def process_audio_buffer(
         distortion_knee=distortion_knee,
     )
 
-    # =========================================================================
-    # STEP 2: BAND-PASS FILTERING (Applied AFTER compression)
-    # Strips out all out-of-band harmonics created by compressor/limiter
-    # =========================================================================
+    # STEP 2: Zero-Phase Filtering
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -307,7 +304,6 @@ def process_audio_buffer(
         if len(data.shape) > 1:
             filtered_data = np.zeros_like(data)
             for channel in range(data.shape[1]):
-                # Zero-phase filtfilt prevents time-domain ringing & edge distortion
                 filtered_data[:, channel] = sosfiltfilt(
                     sos, data[:, channel]
                 )
@@ -325,13 +321,19 @@ def process_audio_buffer(
             noise = sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # =========================================================================
-    # STEP 3: FINAL EQUAL-LOUDNESS NORMALIZATION
-    # Matches target RMS output across bands without re-introducing distortion
-    # =========================================================================
+    # STEP 3: Narrowband Post-Filter Crest Factor Clamping
+    if compress and filter_type != "raw":
+        filtered_data = apply_soft_knee_limiter(
+            filtered_data,
+            target_rms_db=-20.0,
+            max_crest_factor_db=max_crest_factor,
+            distortion_knee=distortion_knee,
+        )
+
+    # STEP 4: Final Loudness Normalization
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
-    # Compute Final Clean Metrics
+    # Compute Metrics
     metrics = calculate_audio_metrics(final_data)
 
     virtual_file = io.BytesIO()
@@ -340,7 +342,13 @@ def process_audio_buffer(
 
 
 def render_audiometer_channel(
-    label, audio_bytes, metrics, element_key, preroll_offset, fft_gain
+    label,
+    audio_bytes,
+    metrics,
+    element_key,
+    preroll_offset,
+    fft_gain,
+    est_dba=None,
 ):
     audio_base64 = base64.b64encode(audio_bytes).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
@@ -354,15 +362,25 @@ def render_audiometer_channel(
         ]
     )
 
+    dba_display = (
+        f'<span style="color:#10b981;">Est. Sound Level: <b>{est_dba:.1f} dBA</b></span>'
+        if est_dba is not None
+        else "<span>Est. Sound Level: <b>-- dBA</b></span>"
+    )
+
     html_code = f"""
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Clinical Leveling & Distortion Metric Badge -->
-        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
+        <!-- Clinical Leveling & Estimated dBA Badge -->
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']} dBFS</b></span>
             <span>RMS: <b>{metrics['rms_db']} dBFS</b></span>
+        </div>
+        
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.8rem; display: flex; justify-content: center;">
+            {dba_display}
         </div>
 
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
@@ -443,7 +461,7 @@ def render_audiometer_channel(
         </script>
     </div>
     """
-    st.components.v1.html(html_code, height=360)
+    st.components.v1.html(html_code, height=380)
 
 
 # ==============================================================================
@@ -451,7 +469,7 @@ def render_audiometer_channel(
 # ==============================================================================
 
 if "filter_order" not in st.session_state:
-    st.session_state.filter_order = 4  # Effective order 8 after zero-phase filtfilt
+    st.session_state.filter_order = 4
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
 if "comp_threshold" not in st.session_state:
@@ -468,7 +486,7 @@ tab1, tab2, tab3 = st.tabs(
 )
 
 with tab3:
-    st.subheader("⚙️ Expert Filter & Distortion Safeguard Settings")
+    st.subheader("⚙️ Expert Filter & Dynamic Span Settings")
     st.session_state.filter_order = st.slider(
         "Filter Order (Butterworth steepness per pass)", 2, 8, 4, 1
     )
@@ -482,7 +500,7 @@ with tab3:
         "Compressor Ratio", 2.0, 16.0, 8.0, 1.0
     )
     st.session_state.max_crest_factor = st.slider(
-        "Peak-to-RMS Window Ceiling (dB)", 2.0, 6.0, 3.5, 0.5
+        "Target Peak-to-RMS Span Ceiling (dB)", 2.0, 6.0, 3.5, 0.5
     )
     st.session_state.distortion_knee = st.slider(
         "Soft-Clipping Curve (Distortion Mitigation)", 0.8, 2.0, 1.2, 0.1
@@ -490,14 +508,42 @@ with tab3:
 
 with tab1:
     with st.container(border=True):
-        with st.expander("🛠️ SYSTEM CALIBRATION & TRANSDUCER CHECK"):
+        with st.expander("🛠️ SYSTEM CALIBRATION & SOUND FIELD LEVEL CALCULATOR"):
+            cal_col1, cal_col2 = st.columns(2)
+            with cal_col1:
+                st.session_state.cal_dial_level = st.number_input(
+                    "Audiometer Dial Setting during Sound Field Measurement (dB HL):",
+                    value=70.0,
+                    step=5.0,
+                )
+            with cal_col2:
+                st.session_state.cal_measured_dba = st.number_input(
+                    "Measured Sound Level Meter Output (dBA):",
+                    value=70.0,
+                    step=0.5,
+                )
+
             if st.button("🔊 GENERATE 1kHz CALIBRATION TONE (-20dBFS)"):
                 cal_bytes = generate_calibration_tone()
                 st.audio(cal_bytes, format="audio/wav")
                 st.success("Calibration active.")
 
+            target_test_dial = st.number_input(
+                "🎯 Active Test Dial Setting (dB HL):",
+                value=st.session_state.cal_dial_level,
+                step=5.0,
+            )
+
+            # Calculation: dBA Output = Measured Reference dBA + (Active Dial - Calibrated Dial)
+            calculated_dba = st.session_state.cal_measured_dba + (
+                target_test_dial - st.session_state.cal_dial_level
+            )
+            st.info(
+                f"📊 **Calculated Acoustic Output Level:** **{calculated_dba:.1f} dBA**"
+            )
+
         compress_toggle = st.checkbox(
-            "Enable Clean VRA Leveling (Pre-Filter Compress & Zero-Phase Clean)",
+            "Lock Equal Loudness & Uniform Dynamic Span Across All Channels",
             value=True,
         )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
@@ -616,6 +662,7 @@ with tab1:
                         item["suffix"],
                         preroll,
                         st.session_state.fft_gain,
+                        est_dba=calculated_dba,
                     )
 
             # --- ANIMATED ACTIVE SIGNAL INDICATOR ---
@@ -658,6 +705,7 @@ with tab1:
                         item["suffix"],
                         preroll,
                         st.session_state.fft_gain,
+                        est_dba=calculated_dba,
                     )
 
 with tab2:
