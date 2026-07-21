@@ -153,6 +153,22 @@ def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
 
+def calculate_audio_metrics(data):
+    """Calculates Peak, RMS, and Dynamic Range (Crest Factor) in dBFS."""
+    peak = np.max(np.abs(data))
+    rms = calculate_rms(data)
+
+    peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
+    rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
+    dr_db = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
+
+    return {
+        "peak_db": round(peak_db, 2),
+        "rms_db": round(rms_db, 2),
+        "dr_db": round(dr_db, 2),
+    }
+
+
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     current_rms = calculate_rms(data)
     if current_rms == 0:
@@ -248,13 +264,17 @@ def process_audio_buffer(
         )
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
+
+    # Compute dynamic range metrics on final output
+    metrics = calculate_audio_metrics(normalized_data)
+
     virtual_file = io.BytesIO()
     sf.write(virtual_file, normalized_data, fs, format="WAV", subtype="PCM_16")
-    return virtual_file.getvalue()
+    return virtual_file.getvalue(), metrics
 
 
 def render_audiometer_channel(
-    label, audio_bytes, element_key, preroll_offset, fft_gain
+    label, audio_bytes, metrics, element_key, preroll_offset, fft_gain
 ):
     audio_base64 = base64.b64encode(audio_bytes).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
@@ -270,7 +290,15 @@ def render_audiometer_channel(
 
     html_code = f"""
     <div class="card">
-        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 12px; letter-spacing: 0.5px;">{label}</div>
+        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
+        
+        <!-- Dynamic Range Metric Badge -->
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
+            <span>DR: <b style="color:#fbbf24;">{metrics['dr_db']} dB</b></span>
+            <span>Peak: <b>{metrics['peak_db']} dBFS</b></span>
+            <span>RMS: <b>{metrics['rms_db']} dBFS</b></span>
+        </div>
+
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
             {bars_html}
         </div>
@@ -349,7 +377,7 @@ def render_audiometer_channel(
         </script>
     </div>
     """
-    st.components.v1.html(html_code, height=340)
+    st.components.v1.html(html_code, height=360)
 
 
 # ==============================================================================
@@ -478,7 +506,7 @@ with tab1:
             ]
             for i, item in enumerate(row1_items):
                 with cols[i]:
-                    buf_bytes = process_audio_buffer(
+                    buf_bytes, metrics = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -491,6 +519,7 @@ with tab1:
                     render_audiometer_channel(
                         item["label"],
                         buf_bytes,
+                        metrics,
                         item["suffix"],
                         preroll,
                         st.session_state.fft_gain,
@@ -515,7 +544,7 @@ with tab1:
             row2_items = [m for m in manifest if "BPF" in m["label"]]
             for i, item in enumerate(row2_items):
                 with cols2[i]:
-                    buf_bytes = process_audio_buffer(
+                    buf_bytes, metrics = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -528,6 +557,7 @@ with tab1:
                     render_audiometer_channel(
                         item["label"],
                         buf_bytes,
+                        metrics,
                         item["suffix"],
                         preroll,
                         st.session_state.fft_gain,
@@ -555,7 +585,7 @@ with tab2:
             zip_b = io.BytesIO()
             with zipfile.ZipFile(zip_b, "w") as z:
                 for item in manifest:
-                    buf_bytes = process_audio_buffer(
+                    buf_bytes, _ = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
