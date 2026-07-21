@@ -5,7 +5,7 @@ import zipfile
 
 import numpy as np
 from pydub import AudioSegment, effects
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfiltfilt
 import soundfile as sf
 import streamlit as st
 from streamlit_local_storage import LocalStorage
@@ -138,14 +138,17 @@ def download_youtube_audio(url, cookie_path=None):
         return None
 
 
-def butter_filter_sos(low, high, fs, filter_type="band", order=8):
+def butter_filter_sos(low, high, fs, filter_type="band", order=4):
+    """Generates SOS representation for zero-phase filtering."""
     nyq = 0.5 * fs
     if filter_type == "low":
         sos = butter(order, high / nyq, btype="low", output="sos")
     elif filter_type == "high":
         sos = butter(order, low / nyq, btype="high", output="sos")
-    else:
+    elif filter_type == "band":
         sos = butter(order, [low / nyq, high / nyq], btype="band", output="sos")
+    else:
+        sos = None
     return sos
 
 
@@ -169,6 +172,23 @@ def calculate_audio_metrics(data):
     }
 
 
+def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
+    """Performs RMS loudness matching across channels while preventing clipping."""
+    current_rms = calculate_rms(data)
+    if current_rms == 0:
+        return data
+
+    target_linear = 10 ** (target_db / 20.0)
+    gain = target_linear / current_rms
+    normalized_data = data * gain
+
+    max_peak = np.max(np.abs(normalized_data))
+    if max_peak > peak_limit:
+        normalized_data = (normalized_data / max_peak) * peak_limit
+
+    return normalized_data
+
+
 def apply_soft_knee_limiter(
     data, target_rms_db=-20.0, max_crest_factor_db=3.5, distortion_knee=1.2
 ):
@@ -177,19 +197,15 @@ def apply_soft_knee_limiter(
     if rms == 0:
         return data
 
-    # 1. Normalize RMS to Target level (-20 dBFS)
     target_linear = 10 ** (target_rms_db / 20.0)
     data_norm = data * (target_linear / rms)
 
-    # 2. Smooth Tanh Soft-Clipping (eliminates harsh square-wave clipping)
     threshold = target_linear * (10 ** (max_crest_factor_db / 20.0))
     normalized_peaks = data_norm / threshold
 
-    # Apply soft curve shaping
     data_soft = np.tanh(normalized_peaks * distortion_knee) / distortion_knee
     data_soft = data_soft * threshold
 
-    # 3. Final Recalibration & Dynamic Match
     final_rms = calculate_rms(data_soft)
     if final_rms > 0:
         data_soft = data_soft * (target_linear / final_rms)
@@ -210,14 +226,14 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Processing ultra-low distortion VRA audio matrix..."
+    show_spinner="Processing clean, zero-phase VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=8,
+    order=4,  # Effective order 8 after zero-phase filtfilt
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -250,28 +266,11 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    sos = butter_filter_sos(
-        lowcut, highcut, fs, filter_type=filter_type, order=order
-    )
-    if filter_type != "raw":
-        if len(data.shape) > 1:
-            filtered_data = np.zeros_like(data)
-            for channel in range(data.shape[1]):
-                filtered_data[:, channel] = sosfilt(sos, data[:, channel])
-        else:
-            filtered_data = sosfilt(sos, data)
-    else:
-        filtered_data = data
-
-    if noise_gain > 0:
-        noise = np.random.normal(0, 0.05, len(filtered_data))
-        if filter_type != "raw":
-            noise = sosfilt(sos, noise)
-        filtered_data = filtered_data + (noise * noise_gain)
-
-    # 1. Smooth Dynamic Range Compression Pass (Moderate settings to preserve clarity)
+    # =========================================================================
+    # STEP 1: DYNAMICS COMPRESSION & LIMITING (Applied BEFORE filtering)
+    # =========================================================================
     if compress:
-        int_data = (np.clip(filtered_data, -1.0, 1.0) * 32767).astype(np.int16)
+        int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
             int_data.tobytes(), frame_rate=int(fs), sample_width=2, channels=1
         )
@@ -281,23 +280,58 @@ def process_audio_buffer(
             threshold=comp_threshold,
             ratio=comp_ratio,
             attack=5.0,
-            release=100.0,
+            release=80.0,
         )
 
-        filtered_data = (
+        data = (
             np.array(audio_seg.get_array_of_samples(), dtype=np.float32)
             / 32768.0
         )
 
-    # 2. Soft-Knee Tanh Peak Limiter (Prevents Distortion Spikes)
-    final_data = apply_soft_knee_limiter(
-        filtered_data,
+    # Soft-knee limiter locks Peak-to-RMS crest factor
+    data = apply_soft_knee_limiter(
+        data,
         target_rms_db=-20.0,
         max_crest_factor_db=max_crest_factor,
         distortion_knee=distortion_knee,
     )
 
-    # 3. Compute Metrics
+    # =========================================================================
+    # STEP 2: BAND-PASS FILTERING (Applied AFTER compression)
+    # Strips out all out-of-band harmonics created by compressor/limiter
+    # =========================================================================
+    if filter_type != "raw":
+        sos = butter_filter_sos(
+            lowcut, highcut, fs, filter_type=filter_type, order=order
+        )
+        if len(data.shape) > 1:
+            filtered_data = np.zeros_like(data)
+            for channel in range(data.shape[1]):
+                # Zero-phase filtfilt prevents time-domain ringing & edge distortion
+                filtered_data[:, channel] = sosfiltfilt(
+                    sos, data[:, channel]
+                )
+        else:
+            filtered_data = sosfiltfilt(sos, data)
+    else:
+        filtered_data = data
+
+    if noise_gain > 0:
+        noise = np.random.normal(0, 0.05, len(filtered_data))
+        if filter_type != "raw":
+            sos_n = butter_filter_sos(
+                lowcut, highcut, fs, filter_type=filter_type, order=order
+            )
+            noise = sosfiltfilt(sos_n, noise)
+        filtered_data = filtered_data + (noise * noise_gain)
+
+    # =========================================================================
+    # STEP 3: FINAL EQUAL-LOUDNESS NORMALIZATION
+    # Matches target RMS output across bands without re-introducing distortion
+    # =========================================================================
+    final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
+
+    # Compute Final Clean Metrics
     metrics = calculate_audio_metrics(final_data)
 
     virtual_file = io.BytesIO()
@@ -417,7 +451,7 @@ def render_audiometer_channel(
 # ==============================================================================
 
 if "filter_order" not in st.session_state:
-    st.session_state.filter_order = 8
+    st.session_state.filter_order = 4  # Effective order 8 after zero-phase filtfilt
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
 if "comp_threshold" not in st.session_state:
@@ -436,7 +470,7 @@ tab1, tab2, tab3 = st.tabs(
 with tab3:
     st.subheader("⚙️ Expert Filter & Distortion Safeguard Settings")
     st.session_state.filter_order = st.slider(
-        "Filter Order (Butterworth steepness)", 2, 16, 8, 2
+        "Filter Order (Butterworth steepness per pass)", 2, 8, 4, 1
     )
     st.session_state.fft_gain = st.slider(
         "FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1
@@ -463,7 +497,8 @@ with tab1:
                 st.success("Calibration active.")
 
         compress_toggle = st.checkbox(
-            "Enable VRA Soft-Knee Leveling (Clean & Level Output)", value=True
+            "Enable Clean VRA Leveling (Pre-Filter Compress & Zero-Phase Clean)",
+            value=True,
         )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
