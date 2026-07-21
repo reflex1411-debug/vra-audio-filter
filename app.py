@@ -187,7 +187,6 @@ def process_audio_buffer(
     compress=False,
     noise_gain=0.0,
 ):
-    """Cached function using file_path to avoid re-reading dynamic byte buffers unnecessarily."""
     with open(file_path, "rb") as f:
         file_bytes = f.read()
 
@@ -277,8 +276,8 @@ def render_audiometer_channel(
         </div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
-            <button onclick="document.getElementById('audio_{element_key}').play()" style="background-color: #10b981; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">▶️ PLAY</button>
-            <button onclick="var a = document.getElementById('audio_{element_key}'); a.pause(); a.currentTime = 0;" style="background-color: #ef4444; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
+            <button id="btn_toggle_{element_key}" onclick="togglePlayPause_{element_key}()" style="background-color: #10b981; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">▶️ PLAY</button>
+            <button onclick="stopAudio_{element_key}()" style="background-color: #ef4444; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
             <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🎯 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">🎯 MARK</button>
@@ -287,10 +286,27 @@ def render_audiometer_channel(
         <script>
             (function() {{
                 const audio = document.getElementById('audio_{element_key}');
+                const btnToggle = document.getElementById('btn_toggle_{element_key}');
                 const bars = document.querySelectorAll('.vu_bar_{element_key}');
                 let audioCtx, analyser, dataArray, source;
-                
+
+                window.togglePlayPause_{element_key} = function() {{
+                    if (audio.paused) {{
+                        audio.play();
+                    }} else {{
+                        audio.pause();
+                    }}
+                }};
+
+                window.stopAudio_{element_key} = function() {{
+                    audio.pause();
+                    audio.currentTime = 0;
+                }};
+
                 audio.addEventListener('play', async () => {{
+                    btnToggle.innerHTML = '⏸️ PAUSE';
+                    btnToggle.style.backgroundColor = '#f59e0b';
+                    
                     if (!audioCtx) {{
                         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                         await audioCtx.resume();
@@ -318,6 +334,16 @@ def render_audiometer_channel(
                         }}
                     }}
                     update();
+                }});
+
+                audio.addEventListener('pause', () => {{
+                    btnToggle.innerHTML = '▶️ PLAY';
+                    btnToggle.style.backgroundColor = '#10b981';
+                }});
+
+                audio.addEventListener('ended', () => {{
+                    btnToggle.innerHTML = '▶️ PLAY';
+                    btnToggle.style.backgroundColor = '#10b981';
                 }});
             }})();
         </script>
@@ -359,12 +385,30 @@ with tab1:
         compress_toggle = st.checkbox("Enable Dynamic Range Compression")
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
-        all_tracks = [
-            f
-            for f in os.listdir(LIBRARY_DIR)
-            if f.lower().endswith((".mp3", ".wav"))
-        ]
-        sel = st.selectbox("Select Signal:", ["-- Select --"] + all_tracks)
+        # File search & filtering
+        all_tracks = sorted(
+            [
+                f
+                for f in os.listdir(LIBRARY_DIR)
+                if f.lower().endswith((".mp3", ".wav"))
+            ]
+        )
+
+        search_query = st.text_input(
+            "🔍 Search Library:",
+            placeholder="Type track name...",
+        )
+        if search_query:
+            filtered_tracks = [
+                f for f in all_tracks if search_query.lower() in f.lower()
+            ]
+        else:
+            filtered_tracks = all_tracks
+
+        sel = st.selectbox(
+            "Select Signal:",
+            ["-- Select --"] + filtered_tracks,
+        )
 
         if sel != "-- Select --":
             active_source = os.path.join(LIBRARY_DIR, sel)
