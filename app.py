@@ -169,16 +169,21 @@ def calculate_audio_metrics(data):
     }
 
 
-def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
+def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
+    """Performs RMS loudness matching across channels while preventing clipping."""
     current_rms = calculate_rms(data)
     if current_rms == 0:
         return data
+
     target_linear = 10 ** (target_db / 20.0)
     gain = target_linear / current_rms
     normalized_data = data * gain
+
+    # Soft brickwall peak check
     max_peak = np.max(np.abs(normalized_data))
     if max_peak > peak_limit:
         normalized_data = (normalized_data / max_peak) * peak_limit
+
     return normalized_data
 
 
@@ -186,13 +191,13 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = rms_normalize(data, target_db=-20.0)
+    data = equal_loudness_normalize(data, target_db=-20.0)
     virtual_file = io.BytesIO()
     sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
     return virtual_file.getvalue()
 
 
-@st.cache_data(show_spinner="Processing audio filter matrix...")
+@st.cache_data(show_spinner="Processing audio filter & loudness matrix...")
 def process_audio_buffer(
     file_path,
     lowcut=None,
@@ -200,7 +205,9 @@ def process_audio_buffer(
     filter_type="band",
     order=8,
     trim=0.0,
-    compress=False,
+    compress=True,
+    comp_threshold=-28.0,
+    comp_ratio=12.0,
     noise_gain=0.0,
 ):
     with open(file_path, "rb") as f:
@@ -246,24 +253,36 @@ def process_audio_buffer(
             noise = sosfilt(sos, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
+    # Aggressive Dynamic Range Compression (Squeezes peak-to-RMS variance)
     if compress:
-        int_data = (filtered_data * 32767).astype(np.int16)
+        int_data = (np.clip(filtered_data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
             int_data.tobytes(), frame_rate=int(fs), sample_width=2, channels=1
         )
+
+        # Multi-pass compression for ultra-narrow dynamic range
         audio_seg = effects.compress_dynamic_range(
             audio_seg,
-            threshold=-25.0,
-            ratio=8.0,
-            attack=5.0,
-            release=150.0,
+            threshold=comp_threshold,
+            ratio=comp_ratio,
+            attack=2.0,
+            release=80.0,
         )
+        audio_seg = effects.compress_dynamic_range(
+            audio_seg,
+            threshold=-12.0,
+            ratio=4.0,
+            attack=1.0,
+            release=40.0,
+        )
+
         filtered_data = (
             np.array(audio_seg.get_array_of_samples(), dtype=np.float32)
             / 32768.0
         )
 
-    normalized_data = rms_normalize(filtered_data, target_db=-20.0)
+    # Standardize output to exact equal perceived RMS loudness (-20 dBFS)
+    normalized_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute dynamic range metrics on final output
     metrics = calculate_audio_metrics(normalized_data)
@@ -292,11 +311,11 @@ def render_audiometer_channel(
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Dynamic Range Metric Badge -->
+        <!-- Narrow Dynamic Range & Equal Loudness Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>DR: <b style="color:#fbbf24;">{metrics['dr_db']} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']} dBFS</b></span>
-            <span>RMS: <b>{metrics['rms_db']} dBFS</b></span>
+            <span>Loudness: <b>{metrics['rms_db']} dBFS</b></span>
         </div>
 
         <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
@@ -388,18 +407,28 @@ if "filter_order" not in st.session_state:
     st.session_state.filter_order = 8
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
+if "comp_threshold" not in st.session_state:
+    st.session_state.comp_threshold = -28.0
+if "comp_ratio" not in st.session_state:
+    st.session_state.comp_ratio = 12.0
 
 tab1, tab2, tab3 = st.tabs(
     ["🎛️ PRESENTATION DESK", "📦 EXPORT & DOWNLOADER", "⚙️ EXPERT CONFIG"]
 )
 
 with tab3:
-    st.subheader("⚙️ Expert Filter Settings")
+    st.subheader("⚙️ Expert Filter & Dynamics Settings")
     st.session_state.filter_order = st.slider(
         "Filter Order (Butterworth steepness)", 2, 16, 8, 2
     )
     st.session_state.fft_gain = st.slider(
         "FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1
+    )
+    st.session_state.comp_threshold = st.slider(
+        "Compressor Threshold (dB)", -40.0, -10.0, -28.0, 1.0
+    )
+    st.session_state.comp_ratio = st.slider(
+        "Compression Ratio (Narrow Dynamic Range)", 2.0, 20.0, 12.0, 1.0
     )
 
 with tab1:
@@ -410,7 +439,9 @@ with tab1:
                 st.audio(cal_bytes, format="audio/wav")
                 st.success("Calibration active.")
 
-        compress_toggle = st.checkbox("Enable Dynamic Range Compression")
+        compress_toggle = st.checkbox(
+            "Lock Equal Loudness & Heavy Dynamics Compression", value=True
+        )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
         # File search & filtering
@@ -514,6 +545,8 @@ with tab1:
                         order=st.session_state.filter_order,
                         trim=trim,
                         compress=compress_toggle,
+                        comp_threshold=st.session_state.comp_threshold,
+                        comp_ratio=st.session_state.comp_ratio,
                         noise_gain=noise_gain,
                     )
                     render_audiometer_channel(
@@ -552,6 +585,8 @@ with tab1:
                         order=st.session_state.filter_order,
                         trim=trim,
                         compress=compress_toggle,
+                        comp_threshold=st.session_state.comp_threshold,
+                        comp_ratio=st.session_state.comp_ratio,
                         noise_gain=noise_gain,
                     )
                     render_audiometer_channel(
@@ -593,6 +628,8 @@ with tab2:
                         order=st.session_state.filter_order,
                         trim=trim,
                         compress=compress_toggle,
+                        comp_threshold=st.session_state.comp_threshold,
+                        comp_ratio=st.session_state.comp_ratio,
                         noise_gain=noise_gain,
                     )
                     z.writestr(f"{sel}_{item['suffix']}.wav", buf_bytes)
