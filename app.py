@@ -58,23 +58,38 @@ def extract_youtube_id(url):
     return match.group(1) if match else None
 
 
-def calculate_thd_estimate(data, fs=44100):
-    """Estimates Total Harmonic Distortion (THD %) based on spectral energy distribution."""
+def calculate_purity_metric(
+    data, lowcut=None, highcut=None, filter_type="raw", fs=44100
+):
+    """Calculates Total Harmonic Distortion (THD %) for broadband signals,
+
+    or Out-of-Band Energy Leakage (%) for band-pass/NBN channels.
+    """
     fft_vals = np.abs(np.fft.rfft(data))
-    if len(fft_vals) == 0:
-        return 0.0
+    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
+    total_energy = np.sum(fft_vals**2)
 
-    peak_idx = np.argmax(fft_vals)
-    fundamental_energy = fft_vals[peak_idx] ** 2
+    if total_energy == 0:
+        return {"val": 0.0, "label": "THD"}
 
-    harmonic_vals = np.delete(fft_vals, peak_idx)
-    harmonic_energy = np.sum(harmonic_vals**2)
+    # For Band-Pass Channels: Measure Out-of-Band Energy Leakage
+    if filter_type == "band" and lowcut and highcut:
+        in_band_mask = (freqs >= lowcut) & (freqs <= highcut)
+        out_of_band_energy = np.sum(fft_vals[~in_band_mask] ** 2)
+        leakage_pct = (out_of_band_energy / total_energy) * 100.0
+        return {"val": round(float(leakage_pct), 2), "label": "Leak"}
 
-    if fundamental_energy == 0:
-        return 0.0
+    # For Broadband / LP / HP Channels: Standard Harmonic Distortion
+    else:
+        peak_idx = np.argmax(fft_vals)
+        fundamental_energy = fft_vals[peak_idx] ** 2
+        harmonic_energy = total_energy - fundamental_energy
 
-    thd = (np.sqrt(harmonic_energy) / np.sqrt(fundamental_energy)) * 100.0
-    return round(float(thd), 2)
+        if fundamental_energy == 0:
+            return {"val": 0.0, "label": "THD"}
+
+        thd = (np.sqrt(harmonic_energy) / np.sqrt(fundamental_energy)) * 100.0
+        return {"val": round(float(min(thd, 100.0)), 2), "label": "THD"}
 
 
 def render_spectrum_plot(data, fs=44100, label=""):
@@ -287,20 +302,25 @@ def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
 
-def calculate_audio_metrics(data):
+def calculate_audio_metrics(
+    data, lowcut=None, highcut=None, filter_type="raw"
+):
     peak = np.max(np.abs(data))
     rms = calculate_rms(data)
 
     peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
     rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
     crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
-    thd = calculate_thd_estimate(data)
+    purity = calculate_purity_metric(
+        data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
 
     return {
         "peak_db": round(float(peak_db), 2),
         "rms_db": round(float(rms_db), 2),
         "dr_span_db": round(float(crest_factor), 2),
-        "thd_pct": thd,
+        "purity_val": purity["val"],
+        "purity_label": purity["label"],
     }
 
 
@@ -470,7 +490,9 @@ def process_audio_buffer(
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute Metrics
-    metrics = calculate_audio_metrics(final_data)
+    metrics = calculate_audio_metrics(
+        final_data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
 
     virtual_file = io.BytesIO()
     sf.write(virtual_file, final_data, fs, format="WAV", subtype="PCM_16")
@@ -504,19 +526,20 @@ def render_audiometer_channel(
         else "<span>Est. Sound Level: <b>-- dBA</b></span>"
     )
 
-    thd_val = metrics.get("thd_pct", 0.0)
-    thd_color = "#10b981" if thd_val < 1.0 else "#ef4444"
+    purity_val = metrics.get("purity_val", 0.0)
+    purity_lbl = metrics.get("purity_label", "THD")
+    purity_color = "#10b981" if purity_val < 1.0 else "#ef4444"
 
     html_code = f"""
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #ffffff; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Clinical Leveling, THD & Estimated dBA Badge -->
+        <!-- Clinical Leveling, Purity & Estimated dBA Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-family: monospace; font-size: 0.72rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']:.2f} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']:.2f} dBFS</b></span>
             <span>RMS: <b>{metrics['rms_db']:.2f} dBFS</b></span>
-            <span>THD: <b style="color:{thd_color};">{thd_val:.2f}%</b></span>
+            <span>{purity_lbl}: <b style="color:{purity_color};">{purity_val:.2f}%</b></span>
         </div>
         
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.8rem; display: flex; justify-content: center;">
@@ -739,7 +762,6 @@ with tab1:
         if len(filtered_tracks) == 1:
             st.session_state.selected_track = filtered_tracks[0]
 
-        # Ensure selected_track exists in current filtered options
         options = ["-- Select --"] + filtered_tracks
         if st.session_state.selected_track not in options:
             st.session_state.selected_track = "-- Select --"
@@ -751,7 +773,6 @@ with tab1:
                 index=options.index(st.session_state.selected_track),
                 key="track_select_box",
             )
-            # Sync session state with dropdown changes
             st.session_state.selected_track = sel
 
         if sel != "-- Select --":
