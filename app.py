@@ -37,13 +37,11 @@ stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
-# Calibration State Storage
 if "cal_measured_dba" not in st.session_state:
     st.session_state.cal_measured_dba = 70.0
 if "cal_dial_level" not in st.session_state:
     st.session_state.cal_dial_level = 70.0
 
-# Active Track Selection Storage for Auto-Load
 if "selected_track" not in st.session_state:
     st.session_state.selected_track = "-- Select --"
 
@@ -61,10 +59,6 @@ def extract_youtube_id(url):
 def calculate_purity_metric(
     data, lowcut=None, highcut=None, filter_type="raw", fs=44100
 ):
-    """Calculates Total Harmonic Distortion (THD %) for broadband signals,
-
-    or Out-of-Band Energy Leakage (%) for band-pass/NBN channels.
-    """
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
     total_energy = np.sum(fft_vals**2)
@@ -72,14 +66,11 @@ def calculate_purity_metric(
     if total_energy == 0:
         return {"val": 0.0, "label": "THD"}
 
-    # For Band-Pass Channels: Measure Out-of-Band Energy Leakage
     if filter_type == "band" and lowcut and highcut:
         in_band_mask = (freqs >= lowcut) & (freqs <= highcut)
         out_of_band_energy = np.sum(fft_vals[~in_band_mask] ** 2)
         leakage_pct = (out_of_band_energy / total_energy) * 100.0
         return {"val": round(float(leakage_pct), 2), "label": "Leak"}
-
-    # For Broadband / LP / HP Channels: Standard Harmonic Distortion
     else:
         peak_idx = np.argmax(fft_vals)
         fundamental_energy = fft_vals[peak_idx] ** 2
@@ -93,7 +84,6 @@ def calculate_purity_metric(
 
 
 def render_spectrum_plot(data, fs=44100, label=""):
-    """Generates a clean dark-mode FFT frequency spectrum plot with bright white text."""
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
 
@@ -132,7 +122,7 @@ def render_spectrum_plot(data, fs=44100, label=""):
 
 
 # ==============================================================================
-# 3. CSS & HIGH-CONTRAST TEXT STYLING
+# 3. CSS STYLING
 # ==============================================================================
 
 st.markdown(
@@ -270,34 +260,6 @@ def butter_filter_sos(low, high, fs, filter_type="band", order=4):
     return sos
 
 
-def apply_spectral_brickwall_gate(
-    data, lowcut, highcut, fs=44100, transition_width_hz=50.0
-):
-    if lowcut is None or highcut is None:
-        return data
-
-    fft_spectrum = np.fft.rfft(data)
-    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
-
-    mask = np.zeros_like(freqs)
-
-    passband = (freqs >= lowcut) & (freqs <= highcut)
-    mask[passband] = 1.0
-
-    low_trans = (freqs >= (lowcut - transition_width_hz)) & (freqs < lowcut)
-    mask[low_trans] = 0.5 * (
-        1 + np.cos(np.pi * (lowcut - freqs[low_trans]) / transition_width_hz)
-    )
-
-    high_trans = (freqs > highcut) & (freqs <= (highcut + transition_width_hz))
-    mask[high_trans] = 0.5 * (
-        1 + np.cos(np.pi * (freqs[high_trans] - highcut) / transition_width_hz)
-    )
-
-    fft_spectrum *= mask
-    return np.fft.irfft(fft_spectrum, len(data))
-
-
 def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
@@ -376,14 +338,14 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Processing clean, matched-span VRA audio matrix..."
+    show_spinner="Processing clean, natural-sounding VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=4,
+    order=4,  # 4th order gives 48 dB/octave zero-phase cutoff without phase smearing
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -416,34 +378,7 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STEP 1: Pre-Filter Compression & Soft-Knee Limiter
-    if compress:
-        int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
-        audio_seg = AudioSegment(
-            int_data.tobytes(), frame_rate=int(fs), sample_width=2, channels=1
-        )
-
-        audio_seg = effects.compress_dynamic_range(
-            audio_seg,
-            threshold=comp_threshold,
-            ratio=comp_ratio,
-            attack=5.0,
-            release=80.0,
-        )
-
-        data = (
-            np.array(audio_seg.get_array_of_samples(), dtype=np.float32)
-            / 32768.0
-        )
-
-    data = apply_soft_knee_limiter(
-        data,
-        target_rms_db=-20.0,
-        max_crest_factor_db=max_crest_factor,
-        distortion_knee=distortion_knee,
-    )
-
-    # STEP 2: Zero-Phase Filtering + Cosine-Tapered Spectral Gate
+    # STEP 1: Time-Domain Zero-Phase Filtering (Prine & Natural Sounding)
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -456,11 +391,6 @@ def process_audio_buffer(
                 )
         else:
             filtered_data = sosfiltfilt(sos, data)
-
-        if filter_type == "band":
-            filtered_data = apply_spectral_brickwall_gate(
-                filtered_data, lowcut, highcut, fs=fs, transition_width_hz=50.0
-            )
     else:
         filtered_data = data
 
@@ -471,14 +401,10 @@ def process_audio_buffer(
                 lowcut, highcut, fs, filter_type=filter_type, order=order
             )
             noise = sosfiltfilt(sos_n, noise)
-            if filter_type == "band":
-                noise = apply_spectral_brickwall_gate(
-                    noise, lowcut, highcut, fs=fs, transition_width_hz=50.0
-                )
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STEP 3: Narrowband Post-Filter Crest Factor Clamping
-    if compress and filter_type != "raw":
+    # STEP 2: Post-Filter Soft-Knee Dynamic Clamping
+    if compress:
         filtered_data = apply_soft_knee_limiter(
             filtered_data,
             target_rms_db=-20.0,
@@ -486,7 +412,7 @@ def process_audio_buffer(
             distortion_knee=distortion_knee,
         )
 
-    # STEP 4: Final Loudness Normalization
+    # STEP 3: Loudness Normalization
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute Metrics
@@ -528,7 +454,7 @@ def render_audiometer_channel(
 
     purity_val = metrics.get("purity_val", 0.0)
     purity_lbl = metrics.get("purity_label", "THD")
-    purity_color = "#10b981" if purity_val < 1.0 else "#ef4444"
+    purity_color = "#10b981" if purity_val < 5.0 else "#ef4444"
 
     html_code = f"""
     <div class="card">
@@ -743,7 +669,6 @@ with tab1:
             ]
         )
 
-        # --- NARROWER SIDE-BY-SIDE SEARCH BAR & LIBRARY SELECTOR ---
         lib_col1, lib_col2 = st.columns([1, 1])
         with lib_col1:
             search_query = st.text_input(
@@ -758,7 +683,6 @@ with tab1:
         else:
             filtered_tracks = all_tracks
 
-        # --- AUTO-SELECT UNIQUE MATCH ON ENTER ---
         if len(filtered_tracks) == 1:
             st.session_state.selected_track = filtered_tracks[0]
 
@@ -832,7 +756,6 @@ with tab1:
                 },
             ]
 
-            # Row 1 Render
             cols = st.columns(3)
             row1_items = [
                 m
@@ -867,7 +790,6 @@ with tab1:
                         est_dba=calculated_dba,
                     )
 
-            # --- ANIMATED ACTIVE SIGNAL INDICATOR ---
             st.markdown(
                 f"""
                 <div class='marquee'><span>{sel}</span></div>
@@ -881,7 +803,6 @@ with tab1:
                 unsafe_allow_html=True,
             )
 
-            # Row 2 Render
             cols2 = st.columns(4)
             row2_items = [m for m in manifest if "BPF" in m["label"]]
             for i, item in enumerate(row2_items):
@@ -910,7 +831,6 @@ with tab1:
                         est_dba=calculated_dba,
                     )
 
-            # --- SPECTRAL DENSITY INSPECTOR ---
             with st.expander("📈 SIGNAL PURITY & SPECTRAL ANALYSIS INSPECTOR"):
                 spec_channel = st.selectbox(
                     "Inspect Band Frequency Response:",
