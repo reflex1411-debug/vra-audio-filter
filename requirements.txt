@@ -3,6 +3,6 @@ numpy
 scipy
 pydub
 soundfile
-streamlit-local-storage
-audioop-lts
+matplotlib
 yt-dlp
+streamlit-local-storage
