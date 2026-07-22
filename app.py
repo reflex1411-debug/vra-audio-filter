@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import re
 import zipfile
 
 import numpy as np
@@ -42,7 +43,19 @@ if "cal_dial_level" not in st.session_state:
     st.session_state.cal_dial_level = 70.0
 
 # ==============================================================================
-# 2. CSS & STYLE INJECTION
+# 2. HELPER FUNCTIONS
+# ==============================================================================
+
+
+def extract_youtube_id(url):
+    """Extracts YouTube video ID from standard or short links."""
+    pattern = r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})"
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+
+# ==============================================================================
+# 3. CSS & STYLE INJECTION
 # ==============================================================================
 
 st.markdown(
@@ -112,7 +125,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# 3. AUDIO PROCESSING ENGINE
+# 4. AUDIO PROCESSING ENGINE
 # ==============================================================================
 
 
@@ -170,9 +183,9 @@ def calculate_audio_metrics(data):
     crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
 
     return {
-        "peak_db": round(peak_db, 2),
-        "rms_db": round(rms_db, 2),
-        "dr_span_db": round(crest_factor, 2),
+        "peak_db": round(float(peak_db), 2),
+        "rms_db": round(float(rms_db), 2),
+        "dr_span_db": round(float(crest_factor), 2),
     }
 
 
@@ -268,7 +281,7 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STEP 1: Dynamic Range Compression
+    # STEP 1: Pre-Filter Compression & Soft-Knee Limiter
     if compress:
         int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
@@ -288,7 +301,6 @@ def process_audio_buffer(
             / 32768.0
         )
 
-    # Soft-Knee Limiter
     data = apply_soft_knee_limiter(
         data,
         target_rms_db=-20.0,
@@ -363,7 +375,7 @@ def render_audiometer_channel(
     )
 
     dba_display = (
-        f'<span style="color:#10b981;">Est. Sound Level: <b>{est_dba:.1f} dBA</b></span>'
+        f'<span style="color:#10b981;">Est. Sound Level: <b>{est_dba:.2f} dBA</b></span>'
         if est_dba is not None
         else "<span>Est. Sound Level: <b>-- dBA</b></span>"
     )
@@ -374,9 +386,9 @@ def render_audiometer_channel(
         
         <!-- Clinical Leveling & Estimated dBA Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
-            <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']} dB</b></span>
-            <span>Peak: <b>{metrics['peak_db']} dBFS</b></span>
-            <span>RMS: <b>{metrics['rms_db']} dBFS</b></span>
+            <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']:.2f} dB</b></span>
+            <span>Peak: <b>{metrics['peak_db']:.2f} dBFS</b></span>
+            <span>RMS: <b>{metrics['rms_db']:.2f} dBFS</b></span>
         </div>
         
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.8rem; display: flex; justify-content: center;">
@@ -465,7 +477,7 @@ def render_audiometer_channel(
 
 
 # ==============================================================================
-# 4. UI LOGIC & LAYOUT
+# 5. UI LOGIC & LAYOUT
 # ==============================================================================
 
 if "filter_order" not in st.session_state:
@@ -481,11 +493,16 @@ if "max_crest_factor" not in st.session_state:
 if "distortion_knee" not in st.session_state:
     st.session_state.distortion_knee = 1.2
 
-tab1, tab2, tab3 = st.tabs(
-    ["🎛️ PRESENTATION DESK", "📦 EXPORT & DOWNLOADER", "⚙️ EXPERT CONFIG"]
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🎛️ PRESENTATION DESK",
+        "🎥 AD-HOC YOUTUBE PLAYER",
+        "📦 EXPORT & DOWNLOADER",
+        "⚙️ EXPERT CONFIG",
+    ]
 )
 
-with tab3:
+with tab4:
     st.subheader("⚙️ Expert Filter & Dynamic Span Settings")
     st.session_state.filter_order = st.slider(
         "Filter Order (Butterworth steepness per pass)", 2, 8, 4, 1
@@ -505,6 +522,30 @@ with tab3:
     st.session_state.distortion_knee = st.slider(
         "Soft-Clipping Curve (Distortion Mitigation)", 0.8, 2.0, 1.2, 0.1
     )
+
+with tab2:
+    st.subheader("🎥 Ad-Hoc YouTube Media Player")
+    st.markdown(
+        "Paste any YouTube video or audio link below to stream directly into"
+        " the clinic room during ad-hoc testing sessions."
+    )
+
+    adhoc_yt_url = st.text_input(
+        "🔗 YouTube Media URL:",
+        placeholder="https://www.youtube.com/watch?v=...",
+        key="adhoc_player_input",
+    )
+
+    if adhoc_yt_url:
+        video_id = extract_youtube_id(adhoc_yt_url)
+        if video_id:
+            st.video(f"https://www.youtube.com/watch?v={video_id}")
+            st.success("Media loaded successfully.")
+        else:
+            st.error(
+                "Invalid YouTube URL format. Please check the link and try"
+                " again."
+            )
 
 with tab1:
     with st.container(border=True):
@@ -534,12 +575,11 @@ with tab1:
                 step=5.0,
             )
 
-            # Calculation: dBA Output = Measured Reference dBA + (Active Dial - Calibrated Dial)
             calculated_dba = st.session_state.cal_measured_dba + (
                 target_test_dial - st.session_state.cal_dial_level
             )
             st.info(
-                f"📊 **Calculated Acoustic Output Level:** **{calculated_dba:.1f} dBA**"
+                f"📊 **Calculated Acoustic Output Level:** **{calculated_dba:.2f} dBA**"
             )
 
         compress_toggle = st.checkbox(
@@ -708,7 +748,7 @@ with tab1:
                         est_dba=calculated_dba,
                     )
 
-with tab2:
+with tab3:
     st.subheader("📦 Bulk Export & YouTube Downloader")
     yt_url = st.text_input("🔗 URL:")
     cookie_file = st.file_uploader("Upload cookies.txt", type=["txt"])
