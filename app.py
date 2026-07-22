@@ -43,6 +43,10 @@ if "cal_measured_dba" not in st.session_state:
 if "cal_dial_level" not in st.session_state:
     st.session_state.cal_dial_level = 70.0
 
+# Active Track Selection Storage for Auto-Load
+if "selected_track" not in st.session_state:
+    st.session_state.selected_track = "-- Select --"
+
 # ==============================================================================
 # 2. HELPER & ANALYSIS FUNCTIONS
 # ==============================================================================
@@ -721,9 +725,9 @@ with tab1:
         with lib_col1:
             search_query = st.text_input(
                 "🔍 Search Library:",
-                placeholder="Type track name...",
+                placeholder="Type track name and press Enter...",
             )
-        
+
         if search_query:
             filtered_tracks = [
                 f for f in all_tracks if search_query.lower() in f.lower()
@@ -731,11 +735,24 @@ with tab1:
         else:
             filtered_tracks = all_tracks
 
+        # --- AUTO-SELECT UNIQUE MATCH ON ENTER ---
+        if len(filtered_tracks) == 1:
+            st.session_state.selected_track = filtered_tracks[0]
+
+        # Ensure selected_track exists in current filtered options
+        options = ["-- Select --"] + filtered_tracks
+        if st.session_state.selected_track not in options:
+            st.session_state.selected_track = "-- Select --"
+
         with lib_col2:
             sel = st.selectbox(
                 "Select Signal:",
-                ["-- Select --"] + filtered_tracks,
+                options,
+                index=options.index(st.session_state.selected_track),
+                key="track_select_box",
             )
+            # Sync session state with dropdown changes
+            st.session_state.selected_track = sel
 
         if sel != "-- Select --":
             active_source = os.path.join(LIBRARY_DIR, sel)
