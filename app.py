@@ -74,7 +74,7 @@ def calculate_thd_estimate(data, fs=44100):
 
 
 def render_spectrum_plot(data, fs=44100, label=""):
-    """Generates a clean dark-mode FFT frequency spectrum plot."""
+    """Generates a clean dark-mode FFT frequency spectrum plot with bright white text."""
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
 
@@ -91,16 +91,21 @@ def render_spectrum_plot(data, fs=44100, label=""):
 
     ax.set_title(
         f"Spectral Density Matrix - {label}",
-        color="#f8fafc",
+        color="#ffffff",
         fontsize=10,
         fontfamily="monospace",
+        fontweight="bold",
     )
-    ax.set_xlabel("Frequency (Hz)", color="#94a3b8", fontsize=8)
-    ax.set_ylabel("Magnitude (dB)", color="#94a3b8", fontsize=8)
+    ax.set_xlabel(
+        "Frequency (Hz)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
+    ax.set_ylabel(
+        "Magnitude (dB)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
 
-    ax.tick_params(colors="#94a3b8", labelsize=7)
+    ax.tick_params(colors="#ffffff", labelsize=7)
     for spine in ax.spines.values():
-        spine.set_color("#334155")
+        spine.set_color("#475569")
 
     ax.grid(True, which="both", color="#334155", linestyle=":", linewidth=0.5)
     plt.tight_layout()
@@ -108,19 +113,38 @@ def render_spectrum_plot(data, fs=44100, label=""):
 
 
 # ==============================================================================
-# 3. CSS & STYLE INJECTION
+# 3. CSS & HIGH-CONTRAST TEXT STYLING
 # ==============================================================================
 
 st.markdown(
     """
     <style>
+        /* Force App Background to Dark Blue/Slate */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
+        /* Force ALL Standard Labels, Paragraphs, Headings, Inputs, and Sliders to White */
+        html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, h5, h6, span, label {
+            color: #ffffff !important;
+        }
+
+        /* Input Labels, Selectbox Labels, Slider Labels, and Expander Text Force White */
+        .stTextInput label, .stSelectbox label, .stSlider label, .stNumberInput label, .stCheckbox span {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+
+        /* Streamlit Expander Header Text */
+        .st-emotion-cache-1e0sspq, .stExpander details summary p {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+
+        /* Card Container */
         .card { 
-            background-color: #1e293b; border: 1px solid #334155; 
+            background-color: #1e293b; border: 1px solid #475569; 
             border-radius: 12px; padding: 16px; margin-bottom: 12px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.4); text-align: center; 
         }
         
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
@@ -152,7 +176,7 @@ st.markdown(
             font-family: 'Courier New', Courier, monospace;
             font-size: 1.6rem;
             font-weight: 700;
-            color: #38bdf8;
+            color: #38bdf8 !important;
             text-shadow: 0 0 8px #38bdf8;
             text-transform: uppercase;
         }
@@ -165,11 +189,11 @@ st.markdown(
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
-                <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#94a3b8"/>
+                <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#ffffff"/>
             </svg>
             <div style="text-align: left;">
-                <h1 style="color: #f8fafc; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
-                <div style="color: #94a3b8; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // MASTER ARCHIVE EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
+                <h1 style="color: #ffffff !important; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
+                <div style="color: #cbd5e1 !important; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // MASTER ARCHIVE EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
             </div>
         </div>
     </div>
@@ -494,7 +518,7 @@ def render_audiometer_channel(
 
     html_code = f"""
     <div class="card">
-        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
+        <div style="font-family: monospace; font-size: 1.1rem; color: #ffffff; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
         <!-- Clinical Leveling, THD & Estimated dBA Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-family: monospace; font-size: 0.72rem; color: #38bdf8; display: flex; justify-content: space-around;">
