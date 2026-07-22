@@ -659,7 +659,6 @@ with tab2:
     if adhoc_yt_url:
         video_id = extract_youtube_id(adhoc_yt_url)
         if video_id:
-            # Constrain player size to a neat centered column
             left_pad, player_col, right_pad = st.columns([1, 2, 1])
             with player_col:
                 with st.container(border=True):
@@ -717,10 +716,14 @@ with tab1:
             ]
         )
 
-        search_query = st.text_input(
-            "🔍 Search Library:",
-            placeholder="Type track name...",
-        )
+        # --- NARROWER SIDE-BY-SIDE SEARCH BAR & LIBRARY SELECTOR ---
+        lib_col1, lib_col2 = st.columns([1, 1])
+        with lib_col1:
+            search_query = st.text_input(
+                "🔍 Search Library:",
+                placeholder="Type track name...",
+            )
+        
         if search_query:
             filtered_tracks = [
                 f for f in all_tracks if search_query.lower() in f.lower()
@@ -728,10 +731,11 @@ with tab1:
         else:
             filtered_tracks = all_tracks
 
-        sel = st.selectbox(
-            "Select Signal:",
-            ["-- Select --"] + filtered_tracks,
-        )
+        with lib_col2:
+            sel = st.selectbox(
+                "Select Signal:",
+                ["-- Select --"] + filtered_tracks,
+            )
 
         if sel != "-- Select --":
             active_source = os.path.join(LIBRARY_DIR, sel)
