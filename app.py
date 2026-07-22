@@ -338,14 +338,14 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Processing clean, natural-sounding VRA audio matrix..."
+    show_spinner="Processing clean, isolated VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=4,  # 4th order gives 48 dB/octave zero-phase cutoff without phase smearing
+    order=4,  # 4th-order zero-phase gives clean 48 dB/octave attenuation
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -378,7 +378,34 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STEP 1: Time-Domain Zero-Phase Filtering (Prine & Natural Sounding)
+    # STAGE 1: BROADBAND DYNAMICS LEVELING & SOFT LIMITER (Run BEFORE filtering)
+    if compress:
+        int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
+        audio_seg = AudioSegment(
+            int_data.tobytes(), frame_rate=int(fs), sample_width=2, channels=1
+        )
+
+        audio_seg = effects.compress_dynamic_range(
+            audio_seg,
+            threshold=comp_threshold,
+            ratio=comp_ratio,
+            attack=5.0,
+            release=80.0,
+        )
+
+        data = (
+            np.array(audio_seg.get_array_of_samples(), dtype=np.float32)
+            / 32768.0
+        )
+
+        data = apply_soft_knee_limiter(
+            data,
+            target_rms_db=-20.0,
+            max_crest_factor_db=max_crest_factor,
+            distortion_knee=distortion_knee,
+        )
+
+    # STAGE 2: BAND-PASS FILTERING (Strips out-of-band energy & scrubs away all limiter harmonics)
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -403,16 +430,7 @@ def process_audio_buffer(
             noise = sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STEP 2: Post-Filter Soft-Knee Dynamic Clamping
-    if compress:
-        filtered_data = apply_soft_knee_limiter(
-            filtered_data,
-            target_rms_db=-20.0,
-            max_crest_factor_db=max_crest_factor,
-            distortion_knee=distortion_knee,
-        )
-
-    # STEP 3: Loudness Normalization
+    # STAGE 3: PURE LINEAR EQUAL-LOUDNESS NORMALIZATION (No non-linear saturation)
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute Metrics
