@@ -119,28 +119,23 @@ def render_spectrum_plot(data, fs=44100, label=""):
 st.markdown(
     """
     <style>
-        /* Force App Background to Dark Blue/Slate */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
-        /* Force ALL Standard Labels, Paragraphs, Headings, Inputs, and Sliders to White */
         html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, h5, h6, span, label {
             color: #ffffff !important;
         }
 
-        /* Input Labels, Selectbox Labels, Slider Labels, and Expander Text Force White */
         .stTextInput label, .stSelectbox label, .stSlider label, .stNumberInput label, .stCheckbox span {
             color: #ffffff !important;
             font-weight: 600 !important;
         }
 
-        /* Streamlit Expander Header Text */
         .st-emotion-cache-1e0sspq, .stExpander details summary p {
             color: #ffffff !important;
             font-weight: 700 !important;
         }
 
-        /* Card Container */
         .card { 
             background-color: #1e293b; border: 1px solid #475569; 
             border-radius: 12px; padding: 16px; margin-bottom: 12px; 
@@ -154,7 +149,6 @@ st.markdown(
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
 
-        /* Dot Matrix Narrow Marquee */
         .marquee {
             width: 60%;
             overflow: hidden;
@@ -260,10 +254,6 @@ def butter_filter_sos(low, high, fs, filter_type="band", order=4):
 def apply_spectral_brickwall_gate(
     data, lowcut, highcut, fs=44100, transition_width_hz=50.0
 ):
-    """Applies a smooth cosine-tapered spectral gate to eliminate out-of-band leakage
-
-    without introducing metallic phase ringing or time-domain smearing.
-    """
     if lowcut is None or highcut is None:
         return data
 
@@ -272,17 +262,14 @@ def apply_spectral_brickwall_gate(
 
     mask = np.zeros_like(freqs)
 
-    # Passband
     passband = (freqs >= lowcut) & (freqs <= highcut)
     mask[passband] = 1.0
 
-    # Smooth Cosine Low Transition
     low_trans = (freqs >= (lowcut - transition_width_hz)) & (freqs < lowcut)
     mask[low_trans] = 0.5 * (
         1 + np.cos(np.pi * (lowcut - freqs[low_trans]) / transition_width_hz)
     )
 
-    # Smooth Cosine High Transition
     high_trans = (freqs > highcut) & (freqs <= (highcut + transition_width_hz))
     mask[high_trans] = 0.5 * (
         1 + np.cos(np.pi * (freqs[high_trans] - highcut) / transition_width_hz)
@@ -662,6 +649,7 @@ with tab4:
 
 with tab2:
     st.subheader("🎥 Ad-Hoc YouTube Media Player")
+
     adhoc_yt_url = st.text_input(
         "🔗 YouTube Media URL:",
         placeholder="https://www.youtube.com/watch?v=...",
@@ -671,8 +659,12 @@ with tab2:
     if adhoc_yt_url:
         video_id = extract_youtube_id(adhoc_yt_url)
         if video_id:
-            st.video(f"https://www.youtube.com/watch?v={video_id}")
-            st.success("Media loaded successfully.")
+            # Constrain player size to a neat centered column
+            left_pad, player_col, right_pad = st.columns([1, 2, 1])
+            with player_col:
+                with st.container(border=True):
+                    st.video(f"https://www.youtube.com/watch?v={video_id}")
+                    st.success("Media loaded successfully.")
         else:
             st.error("Invalid YouTube URL format.")
 
