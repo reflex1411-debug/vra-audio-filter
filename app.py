@@ -4,6 +4,7 @@ import os
 import re
 import zipfile
 
+import matplotlib.pyplot as plt
 import numpy as np
 from pydub import AudioSegment, effects
 from scipy.signal import butter, sosfiltfilt
@@ -43,15 +44,67 @@ if "cal_dial_level" not in st.session_state:
     st.session_state.cal_dial_level = 70.0
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS
+# 2. HELPER & ANALYSIS FUNCTIONS
 # ==============================================================================
 
 
 def extract_youtube_id(url):
-    """Extracts YouTube video ID from standard or short links."""
     pattern = r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})"
     match = re.search(pattern, url)
     return match.group(1) if match else None
+
+
+def calculate_thd_estimate(data, fs=44100):
+    """Estimates Total Harmonic Distortion (THD %) based on spectral energy distribution."""
+    fft_vals = np.abs(np.fft.rfft(data))
+    if len(fft_vals) == 0:
+        return 0.0
+
+    peak_idx = np.argmax(fft_vals)
+    fundamental_energy = fft_vals[peak_idx] ** 2
+
+    harmonic_vals = np.delete(fft_vals, peak_idx)
+    harmonic_energy = np.sum(harmonic_vals**2)
+
+    if fundamental_energy == 0:
+        return 0.0
+
+    thd = (np.sqrt(harmonic_energy) / np.sqrt(fundamental_energy)) * 100.0
+    return round(float(thd), 2)
+
+
+def render_spectrum_plot(data, fs=44100, label=""):
+    """Generates a clean dark-mode FFT frequency spectrum plot."""
+    fft_vals = np.abs(np.fft.rfft(data))
+    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
+
+    fft_db = 20 * np.log10(np.maximum(fft_vals, 1e-6))
+    fft_db = fft_db - np.max(fft_db)
+
+    fig, ax = plt.subplots(figsize=(8, 2.5), facecolor="#0f172a")
+    ax.set_facecolor("#1e293b")
+    ax.plot(freqs, fft_db, color="#38bdf8", linewidth=1.2)
+
+    ax.set_xscale("log")
+    ax.set_xlim(20, 20000)
+    ax.set_ylim(-80, 5)
+
+    ax.set_title(
+        f"Spectral Density Matrix - {label}",
+        color="#f8fafc",
+        fontsize=10,
+        fontfamily="monospace",
+    )
+    ax.set_xlabel("Frequency (Hz)", color="#94a3b8", fontsize=8)
+    ax.set_ylabel("Magnitude (dB)", color="#94a3b8", fontsize=8)
+
+    ax.tick_params(colors="#94a3b8", labelsize=7)
+    for spine in ax.spines.values():
+        spine.set_color("#334155")
+
+    ax.grid(True, which="both", color="#334155", linestyle=":", linewidth=0.5)
+    plt.tight_layout()
+    return fig
 
 
 # ==============================================================================
@@ -131,7 +184,7 @@ st.markdown(
 
 def download_youtube_audio(url, cookie_path=None):
     ydl_opts = {
-        "format": "bestaudio",
+        "format": "bestaudio/best",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -139,21 +192,31 @@ def download_youtube_audio(url, cookie_path=None):
                 "preferredquality": "192",
             }
         ],
-        "outtmpl": "library/yt_download.%(ext)s",
+        "outtmpl": "library/%(title)s.%(ext)s",
         "nocheckcertificate": True,
+        "quiet": True,
+        "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mweb", "android", "web"],
+            }
+        },
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         ),
     }
-    if cookie_path:
+
+    if cookie_path and os.path.exists(cookie_path):
         ydl_opts["cookiefile"] = cookie_path
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return "library/yt_download.wav"
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            return os.path.splitext(filename)[0] + ".wav"
     except Exception as e:
-        st.error(f"YouTube Download Failed: {e}")
+        st.error(f"YouTube Download Error: {e}")
         return None
 
 
@@ -170,6 +233,41 @@ def butter_filter_sos(low, high, fs, filter_type="band", order=4):
     return sos
 
 
+def apply_spectral_brickwall_gate(
+    data, lowcut, highcut, fs=44100, transition_width_hz=50.0
+):
+    """Applies a smooth cosine-tapered spectral gate to eliminate out-of-band leakage
+
+    without introducing metallic phase ringing or time-domain smearing.
+    """
+    if lowcut is None or highcut is None:
+        return data
+
+    fft_spectrum = np.fft.rfft(data)
+    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
+
+    mask = np.zeros_like(freqs)
+
+    # Passband
+    passband = (freqs >= lowcut) & (freqs <= highcut)
+    mask[passband] = 1.0
+
+    # Smooth Cosine Low Transition
+    low_trans = (freqs >= (lowcut - transition_width_hz)) & (freqs < lowcut)
+    mask[low_trans] = 0.5 * (
+        1 + np.cos(np.pi * (lowcut - freqs[low_trans]) / transition_width_hz)
+    )
+
+    # Smooth Cosine High Transition
+    high_trans = (freqs > highcut) & (freqs <= (highcut + transition_width_hz))
+    mask[high_trans] = 0.5 * (
+        1 + np.cos(np.pi * (freqs[high_trans] - highcut) / transition_width_hz)
+    )
+
+    fft_spectrum *= mask
+    return np.fft.irfft(fft_spectrum, len(data))
+
+
 def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
@@ -181,11 +279,13 @@ def calculate_audio_metrics(data):
     peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
     rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
     crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
+    thd = calculate_thd_estimate(data)
 
     return {
         "peak_db": round(float(peak_db), 2),
         "rms_db": round(float(rms_db), 2),
         "dr_span_db": round(float(crest_factor), 2),
+        "thd_pct": thd,
     }
 
 
@@ -308,7 +408,7 @@ def process_audio_buffer(
         distortion_knee=distortion_knee,
     )
 
-    # STEP 2: Zero-Phase Filtering
+    # STEP 2: Zero-Phase Filtering + Cosine-Tapered Spectral Gate
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -321,6 +421,11 @@ def process_audio_buffer(
                 )
         else:
             filtered_data = sosfiltfilt(sos, data)
+
+        if filter_type == "band":
+            filtered_data = apply_spectral_brickwall_gate(
+                filtered_data, lowcut, highcut, fs=fs, transition_width_hz=50.0
+            )
     else:
         filtered_data = data
 
@@ -331,6 +436,10 @@ def process_audio_buffer(
                 lowcut, highcut, fs, filter_type=filter_type, order=order
             )
             noise = sosfiltfilt(sos_n, noise)
+            if filter_type == "band":
+                noise = apply_spectral_brickwall_gate(
+                    noise, lowcut, highcut, fs=fs, transition_width_hz=50.0
+                )
         filtered_data = filtered_data + (noise * noise_gain)
 
     # STEP 3: Narrowband Post-Filter Crest Factor Clamping
@@ -350,7 +459,7 @@ def process_audio_buffer(
 
     virtual_file = io.BytesIO()
     sf.write(virtual_file, final_data, fs, format="WAV", subtype="PCM_16")
-    return virtual_file.getvalue(), metrics
+    return virtual_file.getvalue(), metrics, final_data
 
 
 def render_audiometer_channel(
@@ -380,15 +489,19 @@ def render_audiometer_channel(
         else "<span>Est. Sound Level: <b>-- dBA</b></span>"
     )
 
+    thd_val = metrics.get("thd_pct", 0.0)
+    thd_color = "#10b981" if thd_val < 1.0 else "#ef4444"
+
     html_code = f"""
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Clinical Leveling & Estimated dBA Badge -->
-        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
+        <!-- Clinical Leveling, THD & Estimated dBA Badge -->
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-family: monospace; font-size: 0.72rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']:.2f} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']:.2f} dBFS</b></span>
             <span>RMS: <b>{metrics['rms_db']:.2f} dBFS</b></span>
+            <span>THD: <b style="color:{thd_color};">{thd_val:.2f}%</b></span>
         </div>
         
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.8rem; display: flex; justify-content: center;">
@@ -525,11 +638,6 @@ with tab4:
 
 with tab2:
     st.subheader("🎥 Ad-Hoc YouTube Media Player")
-    st.markdown(
-        "Paste any YouTube video or audio link below to stream directly into"
-        " the clinic room during ad-hoc testing sessions."
-    )
-
     adhoc_yt_url = st.text_input(
         "🔗 YouTube Media URL:",
         placeholder="https://www.youtube.com/watch?v=...",
@@ -542,10 +650,7 @@ with tab2:
             st.video(f"https://www.youtube.com/watch?v={video_id}")
             st.success("Media loaded successfully.")
         else:
-            st.error(
-                "Invalid YouTube URL format. Please check the link and try"
-                " again."
-            )
+            st.error("Invalid YouTube URL format.")
 
 with tab1:
     with st.container(border=True):
@@ -588,7 +693,6 @@ with tab1:
         )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
-        # File search & filtering
         all_tracks = sorted(
             [
                 f
@@ -681,7 +785,7 @@ with tab1:
             ]
             for i, item in enumerate(row1_items):
                 with cols[i]:
-                    buf_bytes, metrics = process_audio_buffer(
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -724,7 +828,7 @@ with tab1:
             row2_items = [m for m in manifest if "BPF" in m["label"]]
             for i, item in enumerate(row2_items):
                 with cols2[i]:
-                    buf_bytes, metrics = process_audio_buffer(
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -748,6 +852,36 @@ with tab1:
                         est_dba=calculated_dba,
                     )
 
+            # --- SPECTRAL DENSITY INSPECTOR ---
+            with st.expander("📈 SIGNAL PURITY & SPECTRAL ANALYSIS INSPECTOR"):
+                spec_channel = st.selectbox(
+                    "Inspect Band Frequency Response:",
+                    [m["label"] for m in manifest],
+                )
+                selected_item = next(
+                    m for m in manifest if m["label"] == spec_channel
+                )
+
+                _, _, band_array = process_audio_buffer(
+                    active_source,
+                    selected_item["low"],
+                    selected_item["high"],
+                    selected_item["type"],
+                    order=st.session_state.filter_order,
+                    trim=trim,
+                    compress=compress_toggle,
+                    comp_threshold=st.session_state.comp_threshold,
+                    comp_ratio=st.session_state.comp_ratio,
+                    max_crest_factor=st.session_state.max_crest_factor,
+                    distortion_knee=st.session_state.distortion_knee,
+                    noise_gain=noise_gain,
+                )
+
+                fig = render_spectrum_plot(
+                    band_array, label=selected_item["label"]
+                )
+                st.pyplot(fig)
+
 with tab3:
     st.subheader("📦 Bulk Export & YouTube Downloader")
     yt_url = st.text_input("🔗 URL:")
@@ -770,7 +904,7 @@ with tab3:
             zip_b = io.BytesIO()
             with zipfile.ZipFile(zip_b, "w") as z:
                 for item in manifest:
-                    buf_bytes, _ = process_audio_buffer(
+                    buf_bytes, _, _ = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
