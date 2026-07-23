@@ -45,33 +45,10 @@ if "cal_dial_level" not in st.session_state:
 if "selected_track" not in st.session_state:
     st.session_state.selected_track = "-- Select --"
 
-if "filter_order" not in st.session_state:
-    st.session_state.filter_order = 4
-if "fft_gain" not in st.session_state:
-    st.session_state.fft_gain = 1.0
-if "comp_threshold" not in st.session_state:
-    st.session_state.comp_threshold = -22.0
-if "comp_ratio" not in st.session_state:
-    st.session_state.comp_ratio = 8.0
-if "max_crest_factor" not in st.session_state:
-    st.session_state.max_crest_factor = 3.5
-if "distortion_knee" not in st.session_state:
-    st.session_state.distortion_knee = 1.2
-
-# Global Filtering Manifest
-MANIFEST = [
-    {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
-    {"label": "Low-Pass", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
-    {"label": "High-Pass", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
-    {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500"},
-    {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000"},
-    {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000"},
-    {"label": "4000Hz BPF", "low": 3364, "high": 4757, "type": "band", "suffix": "4000"},
-]
-
 # ==============================================================================
 # 2. HELPER & ANALYSIS FUNCTIONS
 # ==============================================================================
+
 
 def extract_youtube_id(url):
     pattern = r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})"
@@ -79,7 +56,9 @@ def extract_youtube_id(url):
     return match.group(1) if match else None
 
 
-def calculate_purity_metric(data, lowcut=None, highcut=None, filter_type="raw", fs=44100):
+def calculate_purity_metric(
+    data, lowcut=None, highcut=None, filter_type="raw", fs=44100
+):
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
     total_energy = np.sum(fft_vals**2)
@@ -126,8 +105,12 @@ def render_spectrum_plot(data, fs=44100, label=""):
         fontfamily="monospace",
         fontweight="bold",
     )
-    ax.set_xlabel("Frequency (Hz)", color="#ffffff", fontsize=8, fontweight="bold")
-    ax.set_ylabel("Magnitude (dB)", color="#ffffff", fontsize=8, fontweight="bold")
+    ax.set_xlabel(
+        "Frequency (Hz)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
+    ax.set_ylabel(
+        "Magnitude (dB)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
 
     ax.tick_params(colors="#ffffff", labelsize=7)
     for spine in ax.spines.values():
@@ -155,6 +138,11 @@ st.markdown(
         .stTextInput label, .stSelectbox label, .stSlider label, .stNumberInput label, .stCheckbox span {
             color: #ffffff !important;
             font-weight: 600 !important;
+        }
+
+        .st-emotion-cache-1e0sspq, .stExpander details summary p {
+            color: #ffffff !important;
+            font-weight: 700 !important;
         }
 
         .card { 
@@ -220,6 +208,7 @@ st.markdown(
 # 4. AUDIO PROCESSING ENGINE
 # ==============================================================================
 
+
 def download_youtube_audio(url, cookie_path=None):
     ydl_opts = {
         "format": "bestaudio/best",
@@ -230,7 +219,7 @@ def download_youtube_audio(url, cookie_path=None):
                 "preferredquality": "192",
             }
         ],
-        "outtmpl": "library/%(id)s_%(title).50s.%(ext)s",
+        "outtmpl": "library/%(title)s.%(ext)s",
         "nocheckcertificate": True,
         "quiet": True,
         "no_warnings": True,
@@ -275,7 +264,9 @@ def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
 
-def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
+def calculate_audio_metrics(
+    data, lowcut=None, highcut=None, filter_type="raw"
+):
     peak = np.max(np.abs(data))
     rms = calculate_rms(data)
 
@@ -346,13 +337,15 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     return virtual_file.getvalue()
 
 
-@st.cache_data(show_spinner="Processing clean, isolated VRA audio matrix...")
+@st.cache_data(
+    show_spinner="Processing clean, isolated VRA audio matrix..."
+)
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=4,
+    order=4,  # 4th-order zero-phase gives clean 48 dB/octave attenuation
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -379,15 +372,13 @@ def process_audio_buffer(
         fs = 44100
     else:
         data, fs = sf.read(io.BytesIO(file_bytes))
-        if len(data.shape) > 1:
-            data = np.mean(data, axis=1)
 
     if trim > 0:
         start_sample = int(trim * fs)
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STAGE 1: DYNAMICS & LIMITER
+    # STAGE 1: BROADBAND DYNAMICS LEVELING & SOFT LIMITER (Run BEFORE filtering)
     if compress:
         int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
@@ -414,12 +405,19 @@ def process_audio_buffer(
             distortion_knee=distortion_knee,
         )
 
-    # STAGE 2: BAND-PASS FILTERING
+    # STAGE 2: BAND-PASS FILTERING (Strips out-of-band energy & scrubs away all limiter harmonics)
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
         )
-        filtered_data = sosfiltfilt(sos, data)
+        if len(data.shape) > 1:
+            filtered_data = np.zeros_like(data)
+            for channel in range(data.shape[1]):
+                filtered_data[:, channel] = sosfiltfilt(
+                    sos, data[:, channel]
+                )
+        else:
+            filtered_data = sosfiltfilt(sos, data)
     else:
         filtered_data = data
 
@@ -432,7 +430,7 @@ def process_audio_buffer(
             noise = sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STAGE 3: EQUAL-LOUDNESS NORMALIZATION
+    # STAGE 3: PURE LINEAR EQUAL-LOUDNESS NORMALIZATION (No non-linear saturation)
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute Metrics
@@ -445,100 +443,26 @@ def process_audio_buffer(
     return virtual_file.getvalue(), metrics, final_data
 
 
-def render_master_fft_console(fft_gain=1.0):
-    bars_html = "".join(
-        [
-            f'<div class="master_vu_bar" style="flex: 1; height: 10%;'
-            ' background: linear-gradient(180deg, #ef4444 0%, #38bdf8 100%);'
-            ' border-radius: 2px; transition: height 0.04s linear;"></div>'
-            for _ in range(48)
-        ]
-    )
-
-    html_code = f"""
-    <div style="background-color: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 16px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.6);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-family: monospace; font-size: 1rem; color: #38bdf8; font-weight: bold;">🎛️ MASTER REAL-TIME FFT SPECTRUM ANALYZER</span>
-            <span id="active_channel_label" style="font-family: monospace; font-size: 0.9rem; color: #fbbf24; background: #1e293b; padding: 2px 10px; border-radius: 4px; border: 1px solid #475569;">CHANNEL: IDLE</span>
-        </div>
-        
-        <div id="master_vu_container" style="background-color: #020617; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 16px; display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 75px;">
-            {bars_html}
-        </div>
-    </div>
-
-    <script>
-        (function() {{
-            const bars = window.parent.document.querySelectorAll('.master_vu_bar');
-            const channelLabel = window.parent.document.getElementById('active_channel_label');
-            
-            let audioCtx = window.parent.masterAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
-            window.parent.masterAudioCtx = audioCtx;
-            
-            let analyser = window.parent.masterAnalyser || audioCtx.createAnalyser();
-            analyser.fftSize = 2048;
-            window.parent.masterAnalyser = analyser;
-            
-            const connectedElements = window.parent.connectedAudioElements || new WeakMap();
-            window.parent.connectedAudioElements = connectedElements;
-
-            window.parent.connectToMasterFFT = async function(audioEl, label) {{
-                if (audioCtx.state === 'suspended') {{
-                    await audioCtx.resume();
-                }}
-                
-                if (!connectedElements.has(audioEl)) {{
-                    try {{
-                        const source = audioCtx.createMediaElementSource(audioEl);
-                        source.connect(analyser);
-                        analyser.connect(audioCtx.destination);
-                        connectedElements.set(audioEl, source);
-                    }} catch(e) {{
-                        console.log("Audio node already connected.");
-                    }}
-                }}
-                
-                if (channelLabel) {{
-                    channelLabel.innerText = "ACTIVE: " + label.toUpperCase();
-                }}
-            }};
-
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            function updateMasterSpectrum() {{
-                analyser.getByteFrequencyData(dataArray);
-                const barsCount = bars.length;
-                
-                for (let i = 0; i < barsCount; i++) {{
-                    const val = (dataArray[i * 3] || 0) / 255.0;
-                    const bar = bars[i];
-                    if (bar) {{
-                        const currentH = parseFloat(bar.style.height) || 10;
-                        const targetH = 10 + (val * 90 * {fft_gain});
-                        bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
-                        bar.style.opacity = 0.25 + (val * 0.75);
-                    }}
-                }}
-                requestAnimationFrame(updateMasterSpectrum);
-            }}
-            
-            updateMasterSpectrum();
-        }})();
-    </script>
-    """
-    st.components.v1.html(html_code, height=140)
-
-
 def render_audiometer_channel(
     label,
     audio_bytes,
     metrics,
     element_key,
     preroll_offset,
+    fft_gain,
     est_dba=None,
 ):
     audio_base64 = base64.b64encode(audio_bytes).decode()
     audio_src = f"data:audio/wav;base64,{audio_base64}"
+
+    bars_html = "".join(
+        [
+            f'<div class="vu_bar_{element_key}" style="flex: 1; height: 10%;'
+            ' background-color: #10b981; border-radius: 1px; transition:'
+            ' height 0.05s ease;"></div>'
+            for _ in range(32)
+        ]
+    )
 
     dba_display = (
         f'<span style="color:#10b981;">Est. Sound Level: <b>{est_dba:.2f} dBA</b></span>'
@@ -554,6 +478,7 @@ def render_audiometer_channel(
     <div class="card">
         <div style="font-family: monospace; font-size: 1.1rem; color: #ffffff; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
+        <!-- Clinical Leveling, Purity & Estimated dBA Badge -->
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-family: monospace; font-size: 0.72rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']:.2f} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']:.2f} dBFS</b></span>
@@ -565,8 +490,10 @@ def render_audiometer_channel(
             {dba_display}
         </div>
 
+        <div id="vu_container_{element_key}" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; height: 36px;">
+            {bars_html}
+        </div>
         <audio id="audio_{element_key}" src="{audio_src}" controls style="width:100%;"></audio>
-        
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
             <button id="btn_toggle_{element_key}" onclick="togglePlayPause_{element_key}()" style="background-color: #10b981; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">▶️ PLAY</button>
             <button onclick="stopAudio_{element_key}()" style="background-color: #ef4444; color: white; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">⏹️ STOP</button>
@@ -575,17 +502,15 @@ def render_audiometer_channel(
             <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🎯 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">🎯 MARK</button>
             <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 12px 5px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
-
         <script>
             (function() {{
                 const audio = document.getElementById('audio_{element_key}');
                 const btnToggle = document.getElementById('btn_toggle_{element_key}');
+                const bars = document.querySelectorAll('.vu_bar_{element_key}');
+                let audioCtx, analyser, dataArray, source;
 
                 window.togglePlayPause_{element_key} = function() {{
                     if (audio.paused) {{
-                        window.parent.document.querySelectorAll('audio').forEach(a => {{
-                            if (a !== audio) a.pause();
-                        }});
                         audio.play();
                     }} else {{
                         audio.pause();
@@ -597,13 +522,37 @@ def render_audiometer_channel(
                     audio.currentTime = 0;
                 }};
 
-                audio.addEventListener('play', () => {{
+                audio.addEventListener('play', async () => {{
                     btnToggle.innerHTML = '⏸️ PAUSE';
                     btnToggle.style.backgroundColor = '#f59e0b';
                     
-                    if (window.parent.connectToMasterFFT) {{
-                        window.parent.connectToMasterFFT(audio, "{label}");
+                    if (!audioCtx) {{
+                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        await audioCtx.resume();
+                        analyser = audioCtx.createAnalyser();
+                        source = audioCtx.createMediaElementSource(audio);
+                        source.connect(analyser);
+                        analyser.connect(audioCtx.destination);
+                        analyser.fftSize = 2048; 
+                        dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
+                    function update() {{
+                        if (!audio.paused) {{
+                            analyser.getByteFrequencyData(dataArray);
+                            for (let i = 0; i < 32; i++) {{
+                                const val = (dataArray[i * 4] || 0) / 255.0;
+                                const bar = bars[i];
+                                if (bar) {{
+                                    const currentH = parseFloat(bar.style.height) || 10;
+                                    const targetH = 10 + (val * 90 * {fft_gain});
+                                    bar.style.height = (currentH + (targetH - currentH) * 0.4) + "%";
+                                    bar.style.opacity = 0.3 + (val * 0.7);
+                                }}
+                            }}
+                            requestAnimationFrame(update);
+                        }}
+                    }}
+                    update();
                 }});
 
                 audio.addEventListener('pause', () => {{
@@ -619,12 +568,25 @@ def render_audiometer_channel(
         </script>
     </div>
     """
-    st.components.v1.html(html_code, height=260)
+    st.components.v1.html(html_code, height=380)
 
 
 # ==============================================================================
-# 5. UI LOGIC & TABS
+# 5. UI LOGIC & LAYOUT
 # ==============================================================================
+
+if "filter_order" not in st.session_state:
+    st.session_state.filter_order = 4
+if "fft_gain" not in st.session_state:
+    st.session_state.fft_gain = 1.0
+if "comp_threshold" not in st.session_state:
+    st.session_state.comp_threshold = -22.0
+if "comp_ratio" not in st.session_state:
+    st.session_state.comp_ratio = 8.0
+if "max_crest_factor" not in st.session_state:
+    st.session_state.max_crest_factor = 3.5
+if "distortion_knee" not in st.session_state:
+    st.session_state.distortion_knee = 1.2
 
 tab1, tab2, tab3, tab4 = st.tabs(
     [
@@ -677,8 +639,6 @@ with tab2:
             st.error("Invalid YouTube URL format.")
 
 with tab1:
-    render_master_fft_console(fft_gain=st.session_state.fft_gain)
-
     with st.container(border=True):
         with st.expander("🛠️ SYSTEM CALIBRATION & SOUND FIELD LEVEL CALCULATOR"):
             cal_col1, cal_col2 = st.columns(2)
@@ -717,8 +677,7 @@ with tab1:
             "Lock Equal Loudness & Uniform Dynamic Span Across All Channels",
             value=True,
         )
-        trim = st.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5, key="trim_slider")
-        noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05, key="noise_gain_slider")
+        noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
         all_tracks = sorted(
             [
@@ -735,11 +694,12 @@ with tab1:
                 placeholder="Type track name and press Enter...",
             )
 
-        filtered_tracks = (
-            [f for f in all_tracks if search_query.lower() in f.lower()]
-            if search_query
-            else all_tracks
-        )
+        if search_query:
+            filtered_tracks = [
+                f for f in all_tracks if search_query.lower() in f.lower()
+            ]
+        else:
+            filtered_tracks = all_tracks
 
         if len(filtered_tracks) == 1:
             st.session_state.selected_track = filtered_tracks[0]
@@ -759,15 +719,150 @@ with tab1:
 
         if sel != "-- Select --":
             active_source = os.path.join(LIBRARY_DIR, sel)
+            trim = st.slider("Trim Start (s)", 0.0, 10.0, 0.0, 0.5)
             preroll = st.slider("Pre-roll (s)", 0.0, 5.0, 2.0, 0.1)
 
-            processed_cache = {}
-            for item in MANIFEST:
-                buf_bytes, metrics, raw_array = process_audio_buffer(
+            manifest = [
+                {
+                    "label": "Broadband",
+                    "low": 20,
+                    "high": 20000,
+                    "type": "raw",
+                    "suffix": "BB",
+                },
+                {
+                    "label": "Low-Pass",
+                    "low": 20,
+                    "high": 1000,
+                    "type": "low",
+                    "suffix": "LP",
+                },
+                {
+                    "label": "High-Pass",
+                    "low": 1000,
+                    "high": 20000,
+                    "type": "high",
+                    "suffix": "HP",
+                },
+                {
+                    "label": "500Hz BPF",
+                    "low": 420,
+                    "high": 595,
+                    "type": "band",
+                    "suffix": "500",
+                },
+                {
+                    "label": "1000Hz BPF",
+                    "low": 841,
+                    "high": 1189,
+                    "type": "band",
+                    "suffix": "1000",
+                },
+                {
+                    "label": "2000Hz BPF",
+                    "low": 1682,
+                    "high": 2378,
+                    "type": "band",
+                    "suffix": "2000",
+                },
+                {
+                    "label": "4000Hz BPF",
+                    "low": 3364,
+                    "high": 4757,
+                    "type": "band",
+                    "suffix": "4000",
+                },
+            ]
+
+            cols = st.columns(3)
+            row1_items = [
+                m
+                for m in manifest
+                if "BPF" not in m["label"]
+                and "raw" not in m["type"]
+                or m["label"] == "Broadband"
+            ]
+            for i, item in enumerate(row1_items):
+                with cols[i]:
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
+                        active_source,
+                        item["low"],
+                        item["high"],
+                        item["type"],
+                        order=st.session_state.filter_order,
+                        trim=trim,
+                        compress=compress_toggle,
+                        comp_threshold=st.session_state.comp_threshold,
+                        comp_ratio=st.session_state.comp_ratio,
+                        max_crest_factor=st.session_state.max_crest_factor,
+                        distortion_knee=st.session_state.distortion_knee,
+                        noise_gain=noise_gain,
+                    )
+                    render_audiometer_channel(
+                        item["label"],
+                        buf_bytes,
+                        metrics,
+                        item["suffix"],
+                        preroll,
+                        st.session_state.fft_gain,
+                        est_dba=calculated_dba,
+                    )
+
+            st.markdown(
+                f"""
+                <div class='marquee'><span>{sel}</span></div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                "<div"
+                " class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>",
+                unsafe_allow_html=True,
+            )
+
+            cols2 = st.columns(4)
+            row2_items = [m for m in manifest if "BPF" in m["label"]]
+            for i, item in enumerate(row2_items):
+                with cols2[i]:
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
+                        active_source,
+                        item["low"],
+                        item["high"],
+                        item["type"],
+                        order=st.session_state.filter_order,
+                        trim=trim,
+                        compress=compress_toggle,
+                        comp_threshold=st.session_state.comp_threshold,
+                        comp_ratio=st.session_state.comp_ratio,
+                        max_crest_factor=st.session_state.max_crest_factor,
+                        distortion_knee=st.session_state.distortion_knee,
+                        noise_gain=noise_gain,
+                    )
+                    render_audiometer_channel(
+                        item["label"],
+                        buf_bytes,
+                        metrics,
+                        item["suffix"],
+                        preroll,
+                        st.session_state.fft_gain,
+                        est_dba=calculated_dba,
+                    )
+
+            with st.expander("📈 SIGNAL PURITY & SPECTRAL ANALYSIS INSPECTOR"):
+                spec_channel = st.selectbox(
+                    "Inspect Band Frequency Response:",
+                    [m["label"] for m in manifest],
+                )
+                selected_item = next(
+                    m for m in manifest if m["label"] == spec_channel
+                )
+
+                _, _, band_array = process_audio_buffer(
                     active_source,
-                    item["low"],
-                    item["high"],
-                    item["type"],
+                    selected_item["low"],
+                    selected_item["high"],
+                    selected_item["type"],
                     order=st.session_state.filter_order,
                     trim=trim,
                     compress=compress_toggle,
@@ -777,64 +872,10 @@ with tab1:
                     distortion_knee=st.session_state.distortion_knee,
                     noise_gain=noise_gain,
                 )
-                processed_cache[item["label"]] = {
-                    "bytes": buf_bytes,
-                    "metrics": metrics,
-                    "array": raw_array,
-                    "item": item,
-                }
 
-            cols = st.columns(3)
-            row1_items = [
-                m
-                for m in MANIFEST
-                if "BPF" not in m["label"]
-                and "raw" not in m["type"]
-                or m["label"] == "Broadband"
-            ]
-            for i, item in enumerate(row1_items):
-                with cols[i]:
-                    cache_item = processed_cache[item["label"]]
-                    render_audiometer_channel(
-                        item["label"],
-                        cache_item["bytes"],
-                        cache_item["metrics"],
-                        item["suffix"],
-                        preroll,
-                        est_dba=calculated_dba,
-                    )
-
-            st.markdown(
-                f"<div class='marquee'><span>{sel}</span></div>",
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                "<div class='audiogram-ruler'><span>500Hz</span><span>1kHz</span><span>2kHz</span><span>4kHz</span></div>",
-                unsafe_allow_html=True,
-            )
-
-            cols2 = st.columns(4)
-            row2_items = [m for m in MANIFEST if "BPF" in m["label"]]
-            for i, item in enumerate(row2_items):
-                with cols2[i]:
-                    cache_item = processed_cache[item["label"]]
-                    render_audiometer_channel(
-                        item["label"],
-                        cache_item["bytes"],
-                        cache_item["metrics"],
-                        item["suffix"],
-                        preroll,
-                        est_dba=calculated_dba,
-                    )
-
-            with st.expander("📈 SIGNAL PURITY & SPECTRAL ANALYSIS INSPECTOR"):
-                spec_channel = st.selectbox(
-                    "Inspect Band Frequency Response:",
-                    [m["label"] for m in MANIFEST],
+                fig = render_spectrum_plot(
+                    band_array, label=selected_item["label"]
                 )
-                band_array = processed_cache[spec_channel]["array"]
-                fig = render_spectrum_plot(band_array, label=spec_channel)
                 st.pyplot(fig)
 
 with tab3:
@@ -854,31 +895,29 @@ with tab3:
                 st.success("Downloaded.")
                 st.rerun()
 
-    selected_track = st.session_state.get("selected_track", "-- Select --")
-    if selected_track != "-- Select --":
+    if sel != "-- Select --":
         if st.button("📦 DOWNLOAD FULL SET (.ZIP)"):
-            active_source = os.path.join(LIBRARY_DIR, selected_track)
             zip_b = io.BytesIO()
             with zipfile.ZipFile(zip_b, "w") as z:
-                for item in MANIFEST:
+                for item in manifest:
                     buf_bytes, _, _ = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
                         item["type"],
                         order=st.session_state.filter_order,
-                        trim=st.session_state.get("trim_slider", 0.0),
-                        compress=True,
+                        trim=trim,
+                        compress=compress_toggle,
                         comp_threshold=st.session_state.comp_threshold,
                         comp_ratio=st.session_state.comp_ratio,
                         max_crest_factor=st.session_state.max_crest_factor,
                         distortion_knee=st.session_state.distortion_knee,
-                        noise_gain=st.session_state.get("noise_gain_slider", 0.0),
+                        noise_gain=noise_gain,
                     )
-                    z.writestr(f"{selected_track}_{item['suffix']}.wav", buf_bytes)
+                    z.writestr(f"{sel}_{item['suffix']}.wav", buf_bytes)
             st.download_button(
                 "Click to Save Archive",
                 zip_b.getvalue(),
-                f"{selected_track}_set.zip",
+                f"{sel}_set.zip",
                 "application/zip",
-            )
+            ) 
