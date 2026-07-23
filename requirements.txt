@@ -1,4 +1,5 @@
-pedalboard>=0.8.0
-soundfile>=0.12.1
+streamlit>=1.30.0
+pandas>=2.0.0
 numpy>=1.24.0
-pydub>=0.25.1
+soundfile>=0.12.1
+pedalboard>=0.8.0
