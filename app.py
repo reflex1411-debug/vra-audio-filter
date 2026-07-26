@@ -2,10 +2,9 @@ import io
 import re
 import numpy as np
 import pandas as pd
+import scipy.signal as signal
 import soundfile as sf
 import streamlit as st
-from pedalboard import HighpassFilter, Limiter, LowpassFilter, Pedalboard
-from pedalboard.io import AudioFile
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION & APPLE HIG STYLING
@@ -46,8 +45,61 @@ st.markdown(
 )
 
 # ==============================================================================
-# 2. UNIVERSAL DSP ENGINE
+# 2. SCIPY-BASED DSP ENGINE (BROADBAND, LPF, HPF, BPF)
 # ==============================================================================
+
+
+def apply_butterworth_filter(
+    data,
+    sample_rate,
+    filter_type="Broadband",
+    center_freq=1000,
+    low_cutoff_hz=250,
+    high_cutoff_hz=4000,
+    q_factor=2.0,
+):
+    """Applies high-order Butterworth digital filtering using scipy.signal."""
+    nyquist = 0.5 * sample_rate
+
+    if filter_type == "Broadband":
+        # 20 Hz High-pass for sub-bass rumble
+        b, a = signal.butter(
+            4, 20.0 / nyquist, btype="highpass", analog=False
+        )
+        return signal.filtfilt(b, a, data, axis=0)
+
+    elif filter_type == "Low Pass":
+        cutoff = min(high_cutoff_hz / nyquist, 0.99)
+        b, a = signal.butter(4, cutoff, btype="lowpass", analog=False)
+        return signal.filtfilt(b, a, data, axis=0)
+
+    elif filter_type == "High Pass":
+        cutoff = max(low_cutoff_hz / nyquist, 0.001)
+        b, a = signal.butter(4, cutoff, btype="highpass", analog=False)
+        return signal.filtfilt(b, a, data, axis=0)
+
+    elif filter_type == "Band Pass":
+        low_f = max(20, center_freq / (2 ** (1 / (2 * q_factor))))
+        high_f = min(sample_rate / 2 - 100, center_freq * (2 ** (1 / (2 * q_factor))))
+        
+        low_norm = max(low_f / nyquist, 0.001)
+        high_norm = min(high_f / nyquist, 0.99)
+
+        b, a = signal.butter(
+            4, [low_norm, high_norm], btype="bandpass", analog=False
+        )
+        return signal.filtfilt(b, a, data, axis=0)
+
+    return data
+
+
+def apply_limiter(data, ceiling_db=-6.0):
+    """Soft-clipping limiter to cap post-filter peak spikes."""
+    ceiling_linear = 10 ** (ceiling_db / 20.0)
+    # Smooth tanh compression curve when signal exceeds threshold
+    scaled = data / ceiling_linear
+    limited = np.tanh(scaled) * ceiling_linear
+    return limited
 
 
 def process_vra_band(
@@ -61,56 +113,38 @@ def process_vra_band(
     target_rms_db=-20.0,
     limiter_ceiling_db=-6.0,
 ):
-    """Processes audio buffer through specified filter geometry, normalises to target RMS,
-
-    and enforces a final Limiter ceiling to prevent clipping and keep dynamic span tight.
-    """
-    board_plugins = []
-
-    # 1. Apply Filtering
-    if filter_type == "Broadband":
-        board_plugins.append(HighpassFilter(cutoff_frequency_hz=20.0))
-
-    elif filter_type == "Low Pass":
-        board_plugins.append(LowpassFilter(cutoff_frequency_hz=high_cutoff_hz))
-
-    elif filter_type == "High Pass":
-        board_plugins.append(HighpassFilter(cutoff_frequency_hz=low_cutoff_hz))
-
-    elif filter_type == "Band Pass":
-        low_f = max(20, center_freq / (2 ** (1 / (2 * q_factor))))
-        high_f = min(
-            sample_rate / 2 - 100, center_freq * (2 ** (1 / (2 * q_factor)))
-        )
-        board_plugins.append(HighpassFilter(cutoff_frequency_hz=low_f))
-        board_plugins.append(LowpassFilter(cutoff_frequency_hz=high_f))
-
-    # Run Filters
-    filter_board = Pedalboard(board_plugins)
-    filtered_audio = filter_board(audio_data, sample_rate)
+    # 1. Filter Audio
+    filtered = apply_butterworth_filter(
+        audio_data,
+        sample_rate,
+        filter_type=filter_type,
+        center_freq=center_freq,
+        low_cutoff_hz=low_cutoff_hz,
+        high_cutoff_hz=high_cutoff_hz,
+        q_factor=q_factor,
+    )
 
     # 2. Target RMS Normalisation (-20.00 dBFS)
-    current_rms = np.sqrt(np.mean(filtered_audio**2))
+    current_rms = np.sqrt(np.mean(filtered**2))
 
     if current_rms > 0:
         target_rms_linear = 10 ** (target_rms_db / 20.0)
         gain_scale = target_rms_linear / current_rms
-        scaled_audio = filtered_audio * gain_scale
+        scaled_audio = filtered * gain_scale
     else:
-        scaled_audio = filtered_audio
+        scaled_audio = filtered
 
-    # 3. Apply Final Safety Limiter AFTER Scaling (Enforces Peak Ceiling & Span)
-    limiter_board = Pedalboard([Limiter(threshold_db=limiter_ceiling_db)])
-    final_audio = limiter_board(scaled_audio, sample_rate)
+    # 3. Post-Filter Limiter Ceiling
+    final_audio = apply_limiter(scaled_audio, ceiling_db=limiter_ceiling_db)
 
-    # 4. Calculate Final Analytics
+    # 4. Analytics
     final_peak_db = 20 * np.log10(np.max(np.abs(final_audio)) + 1e-9)
     final_rms_db = 20 * np.log10(np.sqrt(np.mean(final_audio**2)) + 1e-9)
     span_db = final_peak_db - final_rms_db
 
     # 5. Export WAV
     out_buffer = io.BytesIO()
-    sf.write(out_buffer, final_audio.T, int(sample_rate), format="WAV")
+    sf.write(out_buffer, final_audio, int(sample_rate), format="WAV")
     out_buffer.seek(0)
 
     return out_buffer.getvalue(), {
@@ -131,7 +165,7 @@ st.caption(
 )
 st.divider()
 
-# Sidebar Calibration Settings
+# Sidebar Settings
 st.sidebar.header("🎛️ Audiometric DSP Controls")
 
 target_rms = st.sidebar.number_input(
@@ -149,10 +183,7 @@ limiter_ceiling = st.sidebar.slider(
     max_value=-1.0,
     value=-6.0,
     step=0.5,
-    help=(
-        "Clamps post-filter peak spikes to keep dynamic span tightly"
-        " constrained."
-    ),
+    help="Clamps post-filter peak spikes to keep dynamic span tightly constrained.",
 )
 
 bpf_q = st.sidebar.slider(
@@ -173,16 +204,15 @@ hp_cutoff = st.sidebar.number_input(
 
 # Upload Section
 uploaded_file = st.file_uploader(
-    "Upload VRA Master Music / Stimulus Clip (.wav, .mp3, .flac):",
-    type=["wav", "mp3", "flac", "ogg"],
+    "Upload VRA Master Music / Stimulus Clip (.wav, .flac, .ogg):",
+    type=["wav", "flac", "ogg"],
 )
 
 if uploaded_file is not None:
     raw_bytes = uploaded_file.read()
 
-    with AudioFile(io.BytesIO(raw_bytes)) as f:
-        master_audio = f.read(f.frames)
-        sr = f.samplerate
+    # Read audio into numpy array via soundfile
+    master_audio, sr = sf.read(io.BytesIO(raw_bytes))
 
     st.subheader("🔊 Master Input Audio")
     st.audio(raw_bytes)
