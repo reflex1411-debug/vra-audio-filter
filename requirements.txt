@@ -2,4 +2,4 @@ streamlit>=1.30.0
 pandas>=2.0.0
 numpy>=1.24.0
 soundfile>=0.12.1
-pedalboard==0.8.8
+scipy>=1.11.0
