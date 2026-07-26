@@ -1,5 +1,6 @@
 streamlit
 pydub
+pyaudioop
 scipy
 soundfile
 numpy
