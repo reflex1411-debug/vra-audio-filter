@@ -310,11 +310,10 @@ def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
 
 
 def numpy_dynamic_range_compressor(data, threshold_db=-22.0, ratio=8.0, fs=44100):
-    """Pure vectorized NumPy dynamic range compressor — replaces slow Pydub I/O conversions."""
+    """Pure vectorized NumPy dynamic range compressor."""
     abs_data = np.abs(data)
     data_db = 20.0 * np.log10(np.maximum(abs_data, 1e-6))
     
-    # Smooth envelope follower for attack/release dynamics
     alpha_attack = np.exp(-1.0 / (fs * 0.005))   # 5ms attack
     alpha_release = np.exp(-1.0 / (fs * 0.080))  # 80ms release
     
@@ -328,7 +327,6 @@ def numpy_dynamic_range_compressor(data, threshold_db=-22.0, ratio=8.0, fs=44100
             curr_env = val + alpha_release * (curr_env - val)
         env[i] = curr_env
 
-    # Gain reduction above threshold
     gain_reduction_db = np.where(env > threshold_db, (threshold_db - env) * (1.0 - 1.0 / ratio), 0.0)
     gain_linear = 10.0 ** (gain_reduction_db / 20.0)
     return data * gain_linear
@@ -393,19 +391,7 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STAGE 1: PURE NUMPY DYNAMICS & LIMITER (3x-4x Faster)
-    if compress:
-        data = numpy_dynamic_range_compressor(
-            data, threshold_db=comp_threshold, ratio=comp_ratio, fs=fs
-        )
-        data = apply_soft_knee_limiter(
-            data,
-            target_rms_db=-20.0,
-            max_crest_factor_db=max_crest_factor,
-            distortion_knee=distortion_knee,
-        )
-
-    # STAGE 2: BAND-PASS FILTERING
+    # STAGE 1: BAND-PASS FILTERING FIRST
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -422,6 +408,18 @@ def process_audio_buffer(
             )
             noise = signal.sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
+
+    # STAGE 2: DYNAMICS CONTROL & LIMITING ON FILTERED SIGNAL
+    if compress:
+        filtered_data = numpy_dynamic_range_compressor(
+            filtered_data, threshold_db=comp_threshold, ratio=comp_ratio, fs=fs
+        )
+        filtered_data = apply_soft_knee_limiter(
+            filtered_data,
+            target_rms_db=-20.0,
+            max_crest_factor_db=max_crest_factor,
+            distortion_knee=distortion_knee,
+        )
 
     # STAGE 3: EQUAL-LOUDNESS NORMALIZATION
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
