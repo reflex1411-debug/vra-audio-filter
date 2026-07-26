@@ -46,7 +46,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# 2. UNIVERSAL DSP ENGINE (BROADBAND, LPF, HPF, BPF)
+# 2. UNIVERSAL DSP ENGINE
 # ==============================================================================
 
 
@@ -61,15 +61,14 @@ def process_vra_band(
     target_rms_db=-20.0,
     limiter_ceiling_db=-6.0,
 ):
-    """Processes an audio buffer through specified filter geometry, applies a post-filter
+    """Processes audio buffer through specified filter geometry, normalises to target RMS,
 
-    Limiter to smash band peak spikes, and normalises strictly to target RMS.
+    and enforces a final Limiter ceiling to prevent clipping and keep dynamic span tight.
     """
     board_plugins = []
 
-    # 1. Determine Filtering Chain
+    # 1. Apply Filtering
     if filter_type == "Broadband":
-        # Sub-bass rumble protection only
         board_plugins.append(HighpassFilter(cutoff_frequency_hz=20.0))
 
     elif filter_type == "Low Pass":
@@ -86,29 +85,30 @@ def process_vra_band(
         board_plugins.append(HighpassFilter(cutoff_frequency_hz=low_f))
         board_plugins.append(LowpassFilter(cutoff_frequency_hz=high_f))
 
-    # 2. Add Post-Filter Limiter to Enforce Tight Dynamic Span
-    board_plugins.append(Limiter(threshold_db=limiter_ceiling_db))
+    # Run Filters
+    filter_board = Pedalboard(board_plugins)
+    filtered_audio = filter_board(audio_data, sample_rate)
 
-    # 3. Execute Pedalboard DSP
-    board = Pedalboard(board_plugins)
-    filtered_audio = board(audio_data, sample_rate)
-
-    # 4. Target RMS Normalisation (-20.00 dBFS)
+    # 2. Target RMS Normalisation (-20.00 dBFS)
     current_rms = np.sqrt(np.mean(filtered_audio**2))
 
     if current_rms > 0:
         target_rms_linear = 10 ** (target_rms_db / 20.0)
         gain_scale = target_rms_linear / current_rms
-        final_audio = filtered_audio * gain_scale
+        scaled_audio = filtered_audio * gain_scale
     else:
-        final_audio = filtered_audio
+        scaled_audio = filtered_audio
 
-    # 5. Calculate Metrics
+    # 3. Apply Final Safety Limiter AFTER Scaling (Enforces Peak Ceiling & Span)
+    limiter_board = Pedalboard([Limiter(threshold_db=limiter_ceiling_db)])
+    final_audio = limiter_board(scaled_audio, sample_rate)
+
+    # 4. Calculate Final Analytics
     final_peak_db = 20 * np.log10(np.max(np.abs(final_audio)) + 1e-9)
     final_rms_db = 20 * np.log10(np.sqrt(np.mean(final_audio**2)) + 1e-9)
     span_db = final_peak_db - final_rms_db
 
-    # 6. Export WAV
+    # 5. Export WAV
     out_buffer = io.BytesIO()
     sf.write(out_buffer, final_audio.T, int(sample_rate), format="WAV")
     out_buffer.seek(0)
@@ -180,7 +180,6 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     raw_bytes = uploaded_file.read()
 
-    # Read audio into memory
     with AudioFile(io.BytesIO(raw_bytes)) as f:
         master_audio = f.read(f.frames)
         sr = f.samplerate
@@ -191,7 +190,6 @@ if uploaded_file is not None:
 
     st.subheader("🎚️ Calibrated Filter Outputs")
 
-    # Define the 7 Filter Configurations
     FILTER_CONFIGS = [
         {"name": "Broadband (Unfiltered)", "type": "Broadband", "freq": None},
         {
@@ -210,7 +208,6 @@ if uploaded_file is not None:
         {"name": "4000 Hz (4 kHz) BPF", "type": "Band Pass", "freq": 4000},
     ]
 
-    # Process and display each band in interactive expanders / grids
     for cfg in FILTER_CONFIGS:
         with st.expander(f"🎵 {cfg['name']}", expanded=True):
             wav_data, stats = process_vra_band(
@@ -240,7 +237,12 @@ if uploaded_file is not None:
                 st.metric("Span", stats["Span"])
 
             file_stem = re.sub(r"\.[^.]+$", "", uploaded_file.name)
-            band_tag = cfg["name"].replace(" ", "_").replace("(", "").replace(")", "")
+            band_tag = (
+                cfg["name"]
+                .replace(" ", "_")
+                .replace("(", "")
+                .replace(")", "")
+            )
             out_filename = f"{file_stem}_{band_tag}_RMS-20dB.wav"
 
             st.download_button(
