@@ -17,7 +17,7 @@ import yt_dlp
 # ==============================================================================
 
 st.set_page_config(
-    page_title="Neilio's VRA Toolkit",
+    page_title="Neilio's VRA Clinical Suite",
     page_icon="🎧",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -45,14 +45,15 @@ if "selected_track" not in st.session_state:
     st.session_state.selected_track = "-- Select --"
 
 if "filter_order" not in st.session_state:
-    st.session_state.filter_order = 4
+    st.session_state.filter_order = 8  # 8th-order (48dB/octave) steep clinical slope
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
 
+# Standardized Clinical VRA Band Manifest
 MANIFEST = [
     {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
-    {"label": "Low-Pass", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
-    {"label": "High-Pass", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
+    {"label": "Low-Pass (≤1kHz)", "low": 20, "high": 1000, "type": "low", "suffix": "LP"},
+    {"label": "High-Pass (>1kHz)", "low": 1000, "high": 20000, "type": "high", "suffix": "HP"},
     {"label": "500Hz BPF", "low": 420, "high": 595, "type": "band", "suffix": "500"},
     {"label": "1000Hz BPF", "low": 841, "high": 1189, "type": "band", "suffix": "1000"},
     {"label": "2000Hz BPF", "low": 1682, "high": 2378, "type": "band", "suffix": "2000"},
@@ -60,7 +61,7 @@ MANIFEST = [
 ]
 
 # ==============================================================================
-# 2. HELPER & ANALYSIS FUNCTIONS
+# 2. DSP ENGINE & CLINICAL ANALYSIS
 # ==============================================================================
 
 def extract_youtube_id(url):
@@ -74,6 +75,7 @@ def calculate_rms(data):
 
 
 def calculate_purity_metric(data, lowcut=None, highcut=None, filter_type="raw", fs=44100):
+    """Calculates spectral leakage % for BPF bands and THD % for broadband signals."""
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
     total_energy = np.sum(fft_vals**2)
@@ -118,6 +120,141 @@ def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
     }
 
 
+def butter_filter_sos(low, high, fs, filter_type="band", order=8):
+    """Calculates zero-phase Butterworth filter coefficients using Second-Order Sections (SOS)."""
+    nyq = 0.5 * fs
+    if filter_type == "low":
+        sos = signal.butter(order, high / nyq, btype="low", output="sos")
+    elif filter_type == "high":
+        sos = signal.butter(order, low / nyq, btype="high", output="sos")
+    elif filter_type == "band":
+        sos = signal.butter(order, [low / nyq, high / nyq], btype="band", output="sos")
+    else:
+        sos = None
+    return sos
+
+
+def smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.5, fs=44100):
+    """
+    Applies time-domain gain-envelope tracking to stabilize dynamic range
+    without altering waveform geometry (Zero THD / No Clipping).
+    """
+    rms = calculate_rms(data)
+    if rms == 0:
+        return data
+
+    # Scale to target RMS baseline
+    target_rms_linear = 10 ** (target_rms_db / 20.0)
+    data = data * (target_rms_linear / rms)
+
+    # Calculate peak envelope with 5ms attack / 50ms release
+    abs_data = np.abs(data)
+    peak_ceiling = target_rms_linear * (10 ** (max_crest_db / 20.0))
+    
+    alpha_attack = np.exp(-1.0 / (fs * 0.005))
+    alpha_release = np.exp(-1.0 / (fs * 0.050))
+    
+    env = np.zeros_like(abs_data)
+    curr_env = 0.0
+    for i in range(len(abs_data)):
+        val = abs_data[i]
+        if val > curr_env:
+            curr_env = val + alpha_attack * (curr_env - val)
+        else:
+            curr_env = val + alpha_release * (curr_env - val)
+        env[i] = curr_env
+
+    # Apply smooth gain multiplier where peaks exceed the crest ceiling
+    gain_scale = np.where(env > peak_ceiling, peak_ceiling / np.maximum(env, 1e-6), 1.0)
+    data = data * gain_scale
+
+    # Re-normalize to target RMS
+    final_rms = calculate_rms(data)
+    if final_rms > 0:
+        data = data * (target_rms_linear / final_rms)
+
+    return data
+
+
+@st.cache_data(show_spinner=False)
+def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
+    """Generates a 1kHz reference sine wave RMS-calibrated to -20dBFS."""
+    t = np.linspace(0, duration, int(fs * duration), endpoint=False)
+    data = np.sin(2 * np.pi * freq * t).astype(np.float32)
+    data = smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.0, fs=fs)
+    virtual_file = io.BytesIO()
+    sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
+    return virtual_file.getvalue()
+
+
+@st.cache_data(show_spinner="Generating clinically pure VRA stimuli matrix...")
+def process_audio_buffer(
+    file_path,
+    lowcut=None,
+    highcut=None,
+    filter_type="band",
+    order=8,
+    trim=0.0,
+    compress=True,
+    noise_gain=0.0,
+):
+    data, fs = sf.read(file_path, dtype='float32')
+    if len(data.shape) > 1:
+        data = np.mean(data, axis=1)
+
+    if trim > 0:
+        start_sample = int(trim * fs)
+        if start_sample < len(data):
+            data = data[start_sample:]
+
+    # PRE-STAGE: Pre-equalize input signal RMS to drive compression consistently
+    pre_rms = calculate_rms(data)
+    if pre_rms > 0:
+        data = data * ((10 ** (-3.0 / 20.0)) / pre_rms)
+
+    # STAGE 1: ZERO-PHASE CASCADED BUTTERWORTH FILTERING
+    if filter_type != "raw":
+        sos = butter_filter_sos(
+            lowcut, highcut, fs, filter_type=filter_type, order=order
+        )
+        filtered_data = signal.sosfiltfilt(sos, data)
+    else:
+        filtered_data = data
+
+    if noise_gain > 0:
+        noise = np.random.normal(0, 0.05, len(filtered_data))
+        if filter_type != "raw":
+            sos_n = butter_filter_sos(
+                lowcut, highcut, fs, filter_type=filter_type, order=order
+            )
+            noise = signal.sosfiltfilt(sos_n, noise)
+        filtered_data = filtered_data + (noise * noise_gain)
+
+    # STAGE 2: SMOOTH ENVELOPE DYNAMICS & POST-NORMALIZATION (-20 dBFS RMS)
+    # BPF narrow bands use a natural 3.5dB ceiling; Broadband/LP/HP use 4.0dB
+    crest_ceiling = 3.5 if filter_type == "band" else 4.0
+    
+    if compress:
+        final_data = smooth_linear_envelope_limiter(
+            filtered_data,
+            target_rms_db=-20.0,
+            max_crest_db=crest_ceiling,
+            fs=int(fs),
+        )
+    else:
+        current_rms = calculate_rms(filtered_data)
+        final_data = filtered_data * ((10 ** (-20.0 / 20.0)) / current_rms) if current_rms > 0 else filtered_data
+
+    # Calculate Purity & Crest Factor Metrics
+    metrics = calculate_audio_metrics(
+        final_data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
+
+    virtual_file = io.BytesIO()
+    sf.write(virtual_file, final_data, int(fs), format="WAV", subtype="PCM_16")
+    return virtual_file.getvalue(), metrics, final_data
+
+
 def render_spectrum_plot(data, fs=44100, label=""):
     fft_vals = np.abs(np.fft.rfft(data))
     freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
@@ -153,7 +290,7 @@ def render_spectrum_plot(data, fs=44100, label=""):
 
 
 # ==============================================================================
-# 3. CSS STYLING
+# 3. CSS & FACEPLATE STYLING
 # ==============================================================================
 
 st.markdown(
@@ -164,11 +301,6 @@ st.markdown(
         
         html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, h5, h6, span, label {
             color: #ffffff !important;
-        }
-
-        .stTextInput label, .stSelectbox label, .stSlider label, .stNumberInput label, .stCheckbox span {
-            color: #ffffff !important;
-            font-weight: 600 !important;
         }
 
         .card { 
@@ -185,29 +317,14 @@ st.markdown(
         }
 
         .marquee {
-            width: 60%;
-            overflow: hidden;
-            white-space: nowrap;
-            box-sizing: border-box;
-            background: #000; 
-            border: 2px solid #38bdf8; 
-            border-radius: 4px; 
-            padding: 8px 15px;
-            height: 50px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
+            width: 60%; overflow: hidden; white-space: nowrap; box-sizing: border-box;
+            background: #000; border: 2px solid #38bdf8; border-radius: 4px; 
+            padding: 8px 15px; height: 50px; margin: 0 auto; display: flex; align-items: center;
         }
         .marquee span {
-            display: inline-block;
-            padding-left: 100%;
-            animation: marquee 12s linear infinite;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 1.6rem;
-            font-weight: 700;
-            color: #38bdf8 !important;
-            text-shadow: 0 0 8px #38bdf8;
-            text-transform: uppercase;
+            display: inline-block; padding-left: 100%; animation: marquee 12s linear infinite;
+            font-family: 'Courier New', Courier, monospace; font-size: 1.6rem; font-weight: 700;
+            color: #38bdf8 !important; text-shadow: 0 0 8px #38bdf8; text-transform: uppercase;
         }
         @keyframes marquee {
             0% { transform: translate(0, 0); }
@@ -231,174 +348,8 @@ st.markdown(
 )
 
 # ==============================================================================
-# 4. AUDIO PROCESSING ENGINE
+# 4. UI INTERFACE & AUDIOMETER CHANNELS
 # ==============================================================================
-
-def download_youtube_audio(url, cookie_path=None):
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-                "preferredquality": "192",
-            }
-        ],
-        "outtmpl": "library/%(id)s_%(title).50s.%(ext)s",
-        "nocheckcertificate": True,
-        "quiet": True,
-        "no_warnings": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["mweb", "android", "web"],
-            }
-        },
-        "user_agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-    }
-
-    if cookie_path and os.path.exists(cookie_path):
-        ydl_opts["cookiefile"] = cookie_path
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            return os.path.splitext(filename)[0] + ".wav"
-    except Exception as e:
-        st.error(f"YouTube Download Error: {e}")
-        return None
-
-
-def butter_filter_sos(low, high, fs, filter_type="band", order=4):
-    nyq = 0.5 * fs
-    if filter_type == "low":
-        sos = signal.butter(order, high / nyq, btype="low", output="sos")
-    elif filter_type == "high":
-        sos = signal.butter(order, low / nyq, btype="high", output="sos")
-    elif filter_type == "band":
-        sos = signal.butter(order, [low / nyq, high / nyq], btype="band", output="sos")
-    else:
-        sos = None
-    return sos
-
-
-def smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.8, fs=44100):
-    """
-    Smooth, distortion-free dynamic volume leveling.
-    Uses time-domain envelope tracking instead of hard sample clipping.
-    """
-    rms = calculate_rms(data)
-    if rms == 0:
-        return data
-
-    # Scale to RMS baseline first
-    target_rms_linear = 10 ** (target_rms_db / 20.0)
-    data = data * (target_rms_linear / rms)
-
-    # Calculate peak envelope using smooth 5ms attack / 50ms release
-    abs_data = np.abs(data)
-    peak_ceiling = target_rms_linear * (10 ** (max_crest_db / 20.0))
-    
-    alpha_attack = np.exp(-1.0 / (fs * 0.005))
-    alpha_release = np.exp(-1.0 / (fs * 0.050))
-    
-    env = np.zeros_like(abs_data)
-    curr_env = 0.0
-    for i in range(len(abs_data)):
-        val = abs_data[i]
-        if val > curr_env:
-            curr_env = val + alpha_attack * (curr_env - val)
-        else:
-            curr_env = val + alpha_release * (curr_env - val)
-        env[i] = curr_env
-
-    # Apply smooth gain reduction multiplier where peaks exceed ceiling
-    gain_scale = np.where(env > peak_ceiling, peak_ceiling / np.maximum(env, 1e-6), 1.0)
-    data = data * gain_scale
-
-    # Final post-limiter RMS touchup
-    final_rms = calculate_rms(data)
-    if final_rms > 0:
-        data = data * (target_rms_linear / final_rms)
-
-    return data
-
-
-@st.cache_data(show_spinner=False)
-def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
-    t = np.linspace(0, duration, int(fs * duration), endpoint=False)
-    data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.0, fs=fs)
-    virtual_file = io.BytesIO()
-    sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
-    return virtual_file.getvalue()
-
-
-@st.cache_data(show_spinner="Processing clean, distortion-free VRA audio matrix...")
-def process_audio_buffer(
-    file_path,
-    lowcut=None,
-    highcut=None,
-    filter_type="band",
-    order=4,
-    trim=0.0,
-    compress=True,
-    noise_gain=0.0,
-):
-    data, fs = sf.read(file_path, dtype='float32')
-    if len(data.shape) > 1:
-        data = np.mean(data, axis=1)
-
-    if trim > 0:
-        start_sample = int(trim * fs)
-        if start_sample < len(data):
-            data = data[start_sample:]
-
-    # STAGE 1: BAND-PASS FILTERING
-    if filter_type != "raw":
-        sos = butter_filter_sos(
-            lowcut, highcut, fs, filter_type=filter_type, order=order
-        )
-        filtered_data = signal.sosfiltfilt(sos, data)
-    else:
-        filtered_data = data
-
-    if noise_gain > 0:
-        noise = np.random.normal(0, 0.05, len(filtered_data))
-        if filter_type != "raw":
-            sos_n = butter_filter_sos(
-                lowcut, highcut, fs, filter_type=filter_type, order=order
-            )
-            noise = signal.sosfiltfilt(sos_n, noise)
-        filtered_data = filtered_data + (noise * noise_gain)
-
-    # STAGE 2: SMOOTH ENVELOPE DYNAMICS & NORMALIZATION
-    # BPF narrow bands are given a natural ~3.5dB ceiling to prevent sine-wave distortion
-    crest_ceiling = 3.5 if filter_type == "band" else 4.2
-    
-    if compress:
-        final_data = smooth_linear_envelope_limiter(
-            filtered_data,
-            target_rms_db=-20.0,
-            max_crest_db=crest_ceiling,
-            fs=int(fs),
-        )
-    else:
-        current_rms = calculate_rms(filtered_data)
-        final_data = filtered_data * ((10 ** (-20.0 / 20.0)) / current_rms) if current_rms > 0 else filtered_data
-
-    # Compute Metrics
-    metrics = calculate_audio_metrics(
-        final_data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
-    )
-
-    virtual_file = io.BytesIO()
-    sf.write(virtual_file, final_data, int(fs), format="WAV", subtype="PCM_16")
-    return virtual_file.getvalue(), metrics, final_data
-
 
 def render_audiometer_channel(
     label,
@@ -528,7 +479,7 @@ def render_audiometer_channel(
 
 
 # ==============================================================================
-# 5. UI LOGIC & TABS
+# 5. NAVIGATION & DESK WORKFLOW
 # ==============================================================================
 
 tab1, tab2, tab3, tab4 = st.tabs(
@@ -541,9 +492,9 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 with tab4:
-    st.subheader("⚙️ Expert Filter Settings")
+    st.subheader("⚙️ Expert Filter & DSP Settings")
     st.session_state.filter_order = st.slider(
-        "Filter Order (Butterworth steepness per pass)", 2, 8, 4, 1
+        "Filter Order (Butterworth steepness per pass)", 2, 8, 8, 1
     )
     st.session_state.fft_gain = st.slider(
         "FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1
@@ -551,13 +502,11 @@ with tab4:
 
 with tab2:
     st.subheader("🎥 Ad-Hoc YouTube Media Player")
-
     adhoc_yt_url = st.text_input(
         "🔗 YouTube Media URL:",
         placeholder="https://www.youtube.com/watch?v=...",
         key="adhoc_player_input",
     )
-
     if adhoc_yt_url:
         video_id = extract_youtube_id(adhoc_yt_url)
         if video_id:
