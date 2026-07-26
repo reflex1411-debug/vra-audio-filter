@@ -48,14 +48,6 @@ if "filter_order" not in st.session_state:
     st.session_state.filter_order = 4
 if "fft_gain" not in st.session_state:
     st.session_state.fft_gain = 1.0
-if "comp_threshold" not in st.session_state:
-    st.session_state.comp_threshold = -22.0
-if "comp_ratio" not in st.session_state:
-    st.session_state.comp_ratio = 8.0
-if "max_crest_factor" not in st.session_state:
-    st.session_state.max_crest_factor = 3.2
-if "distortion_knee" not in st.session_state:
-    st.session_state.distortion_knee = 1.2
 
 MANIFEST = [
     {"label": "Broadband", "low": 20, "high": 20000, "type": "raw", "suffix": "BB"},
@@ -75,6 +67,10 @@ def extract_youtube_id(url):
     pattern = r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})"
     match = re.search(pattern, url)
     return match.group(1) if match else None
+
+
+def calculate_rms(data):
+    return np.sqrt(np.mean(data**2))
 
 
 def calculate_purity_metric(data, lowcut=None, highcut=None, filter_type="raw", fs=44100):
@@ -100,6 +96,26 @@ def calculate_purity_metric(data, lowcut=None, highcut=None, filter_type="raw", 
 
         thd = (np.sqrt(harmonic_energy) / np.sqrt(fundamental_energy)) * 100.0
         return {"val": round(float(min(thd, 100.0)), 2), "label": "THD"}
+
+
+def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
+    peak = np.max(np.abs(data))
+    rms = calculate_rms(data)
+
+    peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
+    rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
+    crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
+    purity = calculate_purity_metric(
+        data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
+
+    return {
+        "peak_db": round(float(peak_db), 2),
+        "rms_db": round(float(rms_db), 2),
+        "dr_span_db": round(float(crest_factor), 2),
+        "purity_val": purity["val"],
+        "purity_label": purity["label"],
+    }
 
 
 def render_spectrum_plot(data, fs=44100, label=""):
@@ -269,49 +285,25 @@ def butter_filter_sos(low, high, fs, filter_type="band", order=4):
     return sos
 
 
-def calculate_rms(data):
-    return np.sqrt(np.mean(data**2))
-
-
-def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
-    peak = np.max(np.abs(data))
-    rms = calculate_rms(data)
-
-    peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
-    rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
-    crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
-    purity = calculate_purity_metric(
-        data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
-    )
-
-    return {
-        "peak_db": round(float(peak_db), 2),
-        "rms_db": round(float(rms_db), 2),
-        "dr_span_db": round(float(crest_factor), 2),
-        "purity_val": purity["val"],
-        "purity_label": purity["label"],
-    }
-
-
-def clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=3.2, fs=44100):
+def smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.8, fs=44100):
     """
-    Pure linear dynamic compressor with smooth envelope-based gain attenuation.
-    Zero hard digital sample clipping (no np.clip), preserving 100% audio purity.
+    Smooth, distortion-free dynamic volume leveling.
+    Uses time-domain envelope tracking instead of hard sample clipping.
     """
     rms = calculate_rms(data)
     if rms == 0:
         return data
 
-    # 1. Target RMS scaling
+    # Scale to RMS baseline first
     target_rms_linear = 10 ** (target_rms_db / 20.0)
     data = data * (target_rms_linear / rms)
 
-    # 2. Smooth envelope-based dynamic gain reduction
+    # Calculate peak envelope using smooth 5ms attack / 50ms release
     abs_data = np.abs(data)
-    target_peak_linear = target_rms_linear * (10 ** (max_crest_db / 20.0))
+    peak_ceiling = target_rms_linear * (10 ** (max_crest_db / 20.0))
     
-    alpha_attack = np.exp(-1.0 / (fs * 0.002))   # 2ms smooth attack
-    alpha_release = np.exp(-1.0 / (fs * 0.050))  # 50ms smooth release
+    alpha_attack = np.exp(-1.0 / (fs * 0.005))
+    alpha_release = np.exp(-1.0 / (fs * 0.050))
     
     env = np.zeros_like(abs_data)
     curr_env = 0.0
@@ -323,11 +315,11 @@ def clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=
             curr_env = val + alpha_release * (curr_env - val)
         env[i] = curr_env
 
-    # Smooth linear gain multiplier (no wave shape distortion)
-    gain_reduction = np.where(env > target_peak_linear, target_peak_linear / np.maximum(env, 1e-6), 1.0)
-    data = data * gain_reduction
+    # Apply smooth gain reduction multiplier where peaks exceed ceiling
+    gain_scale = np.where(env > peak_ceiling, peak_ceiling / np.maximum(env, 1e-6), 1.0)
+    data = data * gain_scale
 
-    # 3. Final global linear RMS re-alignment
+    # Final post-limiter RMS touchup
     final_rms = calculate_rms(data)
     if final_rms > 0:
         data = data * (target_rms_linear / final_rms)
@@ -339,13 +331,13 @@ def clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=3.2, fs=fs)
+    data = smooth_linear_envelope_limiter(data, target_rms_db=-20.0, max_crest_db=3.0, fs=fs)
     virtual_file = io.BytesIO()
     sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
     return virtual_file.getvalue()
 
 
-@st.cache_data(show_spinner="Processing clean, isolated VRA audio matrix...")
+@st.cache_data(show_spinner="Processing clean, distortion-free VRA audio matrix...")
 def process_audio_buffer(
     file_path,
     lowcut=None,
@@ -354,10 +346,6 @@ def process_audio_buffer(
     order=4,
     trim=0.0,
     compress=True,
-    comp_threshold=-22.0,
-    comp_ratio=8.0,
-    max_crest_factor=3.2,
-    distortion_knee=1.2,
     noise_gain=0.0,
 ):
     data, fs = sf.read(file_path, dtype='float32')
@@ -387,17 +375,20 @@ def process_audio_buffer(
             noise = signal.sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STAGE 2: SMOOTH ENVELOPE COMPRESSION & CEILING LIMITING (No hard digital clipping)
+    # STAGE 2: SMOOTH ENVELOPE DYNAMICS & NORMALIZATION
+    # BPF narrow bands are given a natural ~3.5dB ceiling to prevent sine-wave distortion
+    crest_ceiling = 3.5 if filter_type == "band" else 4.2
+    
     if compress:
-        final_data = clean_smooth_compressor_and_limiter(
+        final_data = smooth_linear_envelope_limiter(
             filtered_data,
             target_rms_db=-20.0,
-            max_crest_db=max_crest_factor,
+            max_crest_db=crest_ceiling,
             fs=int(fs),
         )
     else:
-        final_rms = calculate_rms(filtered_data)
-        final_data = filtered_data * ((10 ** (-20.0 / 20.0)) / final_rms) if final_rms > 0 else filtered_data
+        current_rms = calculate_rms(filtered_data)
+        final_data = filtered_data * ((10 ** (-20.0 / 20.0)) / current_rms) if current_rms > 0 else filtered_data
 
     # Compute Metrics
     metrics = calculate_audio_metrics(
@@ -550,24 +541,12 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 with tab4:
-    st.subheader("⚙️ Expert Filter & Dynamic Span Settings")
+    st.subheader("⚙️ Expert Filter Settings")
     st.session_state.filter_order = st.slider(
         "Filter Order (Butterworth steepness per pass)", 2, 8, 4, 1
     )
     st.session_state.fft_gain = st.slider(
         "FFT Visualizer Sensitivity", 0.5, 5.0, 1.0, 0.1
-    )
-    st.session_state.comp_threshold = st.slider(
-        "Compressor Threshold (dB)", -35.0, -10.0, -22.0, 1.0
-    )
-    st.session_state.comp_ratio = st.slider(
-        "Compressor Ratio", 2.0, 16.0, 8.0, 1.0
-    )
-    st.session_state.max_crest_factor = st.slider(
-        "Target Peak-to-RMS Span Ceiling (dB)", 3.0, 6.0, 3.2, 0.1
-    )
-    st.session_state.distortion_knee = st.slider(
-        "Soft-Clipping Curve (Distortion Mitigation)", 0.8, 2.0, 1.2, 0.1
     )
 
 with tab2:
@@ -683,10 +662,6 @@ with tab1:
                     order=st.session_state.filter_order,
                     trim=trim,
                     compress=compress_toggle,
-                    comp_threshold=st.session_state.comp_threshold,
-                    comp_ratio=st.session_state.comp_ratio,
-                    max_crest_factor=st.session_state.max_crest_factor,
-                    distortion_knee=st.session_state.distortion_knee,
                     noise_gain=noise_gain,
                 )
                 processed_cache[item["label"]] = {
@@ -783,10 +758,6 @@ with tab3:
                         order=st.session_state.filter_order,
                         trim=st.session_state.get("trim_slider", 0.0),
                         compress=True,
-                        comp_threshold=st.session_state.comp_threshold,
-                        comp_ratio=st.session_state.comp_ratio,
-                        max_crest_factor=st.session_state.max_crest_factor,
-                        distortion_knee=st.session_state.distortion_knee,
                         noise_gain=st.session_state.get("noise_gain_slider", 0.0),
                     )
                     z.writestr(f"{selected_track}_{item['suffix']}.wav", buf_bytes)
