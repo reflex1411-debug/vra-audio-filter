@@ -1,8 +1,5 @@
-streamlit
-numpy
-scipy
-pydub
-soundfile
-matplotlib
-yt-dlp
-streamlit-local-storage
+streamlit>=1.30.0
+pandas>=2.0.0
+numpy>=1.24.0
+soundfile>=0.12.1
+pedalboard>=0.8.0
