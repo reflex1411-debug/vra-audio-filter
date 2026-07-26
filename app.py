@@ -293,22 +293,6 @@ def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
     }
 
 
-def equal_loudness_normalize(data, target_db=-20.0, peak_limit=0.98):
-    current_rms = calculate_rms(data)
-    if current_rms == 0:
-        return data
-
-    target_linear = 10 ** (target_db / 20.0)
-    gain = target_linear / current_rms
-    normalized_data = data * gain
-
-    max_peak = np.max(np.abs(normalized_data))
-    if max_peak > peak_limit:
-        normalized_data = (normalized_data / max_peak) * peak_limit
-
-    return normalized_data
-
-
 def numpy_dynamic_range_compressor(data, threshold_db=-22.0, ratio=8.0, fs=44100):
     """Pure vectorized NumPy dynamic range compressor."""
     abs_data = np.abs(data)
@@ -332,36 +316,29 @@ def numpy_dynamic_range_compressor(data, threshold_db=-22.0, ratio=8.0, fs=44100
     return data * gain_linear
 
 
-def apply_soft_knee_limiter(
-    data, target_rms_db=-20.0, max_crest_factor_db=3.5, distortion_knee=1.2
-):
-    rms = calculate_rms(data)
-    if rms == 0:
+def clean_linear_normalize_and_limit(data, target_db=-20.0, max_crest_db=3.5):
+    """Pure linear RMS normalization with clean peak attenuation (No non-linear saturation)."""
+    current_rms = calculate_rms(data)
+    if current_rms == 0:
         return data
 
-    target_linear = 10 ** (target_rms_db / 20.0)
-    data_norm = data * (target_linear / rms)
+    target_rms_linear = 10 ** (target_db / 20.0)
+    data = data * (target_rms_linear / current_rms)
 
-    threshold = target_linear * (10 ** (max_crest_factor_db / 20.0))
-    normalized_peaks = data_norm / threshold
+    max_allowed_peak = target_rms_linear * (10 ** (max_crest_db / 20.0))
+    current_peak = np.max(np.abs(data))
 
-    data_soft = np.tanh(normalized_peaks * distortion_knee) / distortion_knee
-    data_soft = data_soft * threshold
+    if current_peak > max_allowed_peak:
+        data = data * (max_allowed_peak / current_peak)
 
-    final_rms = calculate_rms(data_soft)
-    if final_rms > 0:
-        data_soft = data_soft * (target_linear / final_rms)
-
-    return data_soft
+    return data
 
 
 @st.cache_data(show_spinner=False)
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = apply_soft_knee_limiter(
-        data, target_rms_db=-20.0, max_crest_factor_db=3.0
-    )
+    data = clean_linear_normalize_and_limit(data, target_db=-20.0, max_crest_db=3.0)
     virtual_file = io.BytesIO()
     sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
     return virtual_file.getvalue()
@@ -391,7 +368,16 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STAGE 1: BAND-PASS FILTERING FIRST
+    # PRE-STAGE: PRE-NORMALIZE RAW SIGNAL TO HIGH RMS (-0.1 dBFS)
+    pre_rms = calculate_rms(data)
+    if pre_rms > 0:
+        target_pre_linear = 10 ** (-0.1 / 20.0)
+        data = data * (target_pre_linear / pre_rms)
+        max_p = np.max(np.abs(data))
+        if max_p > 0.99:
+            data = data * (0.99 / max_p)
+
+    # STAGE 1: BAND-PASS FILTERING
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -409,20 +395,16 @@ def process_audio_buffer(
             noise = signal.sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STAGE 2: DYNAMICS CONTROL & LIMITING ON FILTERED SIGNAL
+    # STAGE 2: DYNAMICS CONTROL ON FILTERED SIGNAL
     if compress:
         filtered_data = numpy_dynamic_range_compressor(
             filtered_data, threshold_db=comp_threshold, ratio=comp_ratio, fs=fs
         )
-        filtered_data = apply_soft_knee_limiter(
-            filtered_data,
-            target_rms_db=-20.0,
-            max_crest_factor_db=max_crest_factor,
-            distortion_knee=distortion_knee,
-        )
 
-    # STAGE 3: EQUAL-LOUDNESS NORMALIZATION
-    final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
+    # STAGE 3: FINAL POST-NORMALIZATION & CEILING LIMITING (-20 dBFS RMS)
+    final_data = clean_linear_normalize_and_limit(
+        filtered_data, target_db=-20.0, max_crest_db=max_crest_factor
+    )
 
     # Compute Metrics
     metrics = calculate_audio_metrics(
