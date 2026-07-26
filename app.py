@@ -4,6 +4,7 @@ import os
 import re
 import zipfile
 
+import matplotlib.pyplot as plt
 import numpy as np
 from pydub import AudioSegment, effects
 from scipy.signal import butter, sosfiltfilt
@@ -36,26 +37,92 @@ stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
     st.session_state.favorites = stored_favs if stored_favs else []
 
-# Calibration State Storage
 if "cal_measured_dba" not in st.session_state:
     st.session_state.cal_measured_dba = 70.0
 if "cal_dial_level" not in st.session_state:
     st.session_state.cal_dial_level = 70.0
 
+if "selected_track" not in st.session_state:
+    st.session_state.selected_track = "-- Select --"
+
 # ==============================================================================
-# 2. HELPER FUNCTIONS
+# 2. HELPER & ANALYSIS FUNCTIONS
 # ==============================================================================
 
 
 def extract_youtube_id(url):
-    """Extracts YouTube video ID from standard or short links."""
     pattern = r"(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})"
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
 
+def calculate_purity_metric(
+    data, lowcut=None, highcut=None, filter_type="raw", fs=44100
+):
+    fft_vals = np.abs(np.fft.rfft(data))
+    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
+    total_energy = np.sum(fft_vals**2)
+
+    if total_energy == 0:
+        return {"val": 0.0, "label": "THD"}
+
+    if filter_type == "band" and lowcut and highcut:
+        in_band_mask = (freqs >= lowcut) & (freqs <= highcut)
+        out_of_band_energy = np.sum(fft_vals[~in_band_mask] ** 2)
+        leakage_pct = (out_of_band_energy / total_energy) * 100.0
+        return {"val": round(float(leakage_pct), 2), "label": "Leak"}
+    else:
+        peak_idx = np.argmax(fft_vals)
+        fundamental_energy = fft_vals[peak_idx] ** 2
+        harmonic_energy = total_energy - fundamental_energy
+
+        if fundamental_energy == 0:
+            return {"val": 0.0, "label": "THD"}
+
+        thd = (np.sqrt(harmonic_energy) / np.sqrt(fundamental_energy)) * 100.0
+        return {"val": round(float(min(thd, 100.0)), 2), "label": "THD"}
+
+
+def render_spectrum_plot(data, fs=44100, label=""):
+    fft_vals = np.abs(np.fft.rfft(data))
+    freqs = np.fft.rfftfreq(len(data), 1.0 / fs)
+
+    fft_db = 20 * np.log10(np.maximum(fft_vals, 1e-6))
+    fft_db = fft_db - np.max(fft_db)
+
+    fig, ax = plt.subplots(figsize=(8, 2.5), facecolor="#0f172a")
+    ax.set_facecolor("#1e293b")
+    ax.plot(freqs, fft_db, color="#38bdf8", linewidth=1.2)
+
+    ax.set_xscale("log")
+    ax.set_xlim(20, 20000)
+    ax.set_ylim(-80, 5)
+
+    ax.set_title(
+        f"Spectral Density Matrix - {label}",
+        color="#ffffff",
+        fontsize=10,
+        fontfamily="monospace",
+        fontweight="bold",
+    )
+    ax.set_xlabel(
+        "Frequency (Hz)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
+    ax.set_ylabel(
+        "Magnitude (dB)", color="#ffffff", fontsize=8, fontweight="bold"
+    )
+
+    ax.tick_params(colors="#ffffff", labelsize=7)
+    for spine in ax.spines.values():
+        spine.set_color("#475569")
+
+    ax.grid(True, which="both", color="#334155", linestyle=":", linewidth=0.5)
+    plt.tight_layout()
+    return fig
+
+
 # ==============================================================================
-# 3. CSS & STYLE INJECTION
+# 3. CSS STYLING
 # ==============================================================================
 
 st.markdown(
@@ -64,10 +131,24 @@ st.markdown(
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
         
+        html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, h5, h6, span, label {
+            color: #ffffff !important;
+        }
+
+        .stTextInput label, .stSelectbox label, .stSlider label, .stNumberInput label, .stCheckbox span {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+
+        .st-emotion-cache-1e0sspq, .stExpander details summary p {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+
         .card { 
-            background-color: #1e293b; border: 1px solid #334155; 
+            background-color: #1e293b; border: 1px solid #475569; 
             border-radius: 12px; padding: 16px; margin-bottom: 12px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.4); text-align: center; 
         }
         
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
@@ -77,7 +158,6 @@ st.markdown(
             color: #fbbf24; margin: 20px 0; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
 
-        /* Dot Matrix Narrow Marquee */
         .marquee {
             width: 60%;
             overflow: hidden;
@@ -99,7 +179,7 @@ st.markdown(
             font-family: 'Courier New', Courier, monospace;
             font-size: 1.6rem;
             font-weight: 700;
-            color: #38bdf8;
+            color: #38bdf8 !important;
             text-shadow: 0 0 8px #38bdf8;
             text-transform: uppercase;
         }
@@ -112,11 +192,11 @@ st.markdown(
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
-                <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#94a3b8"/>
+                <path d="M70,30 C60,25 45,35 40,45 C38,42 32,30 20,25 C25,38 35,45 38,48 C30,52 15,55 5,52 C18,58 32,58 39,53 C41,60 45,75 42,90 C48,75 50,60 48,52 C55,48 85,32 95,30 C85,32 75,32 70,30 Z" fill="#ffffff"/>
             </svg>
             <div style="text-align: left;">
-                <h1 style="color: #f8fafc; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
-                <div style="color: #94a3b8; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // MASTER ARCHIVE EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
+                <h1 style="color: #ffffff !important; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
+                <div style="color: #cbd5e1 !important; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // MASTER ARCHIVE EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
             </div>
         </div>
     </div>
@@ -131,7 +211,7 @@ st.markdown(
 
 def download_youtube_audio(url, cookie_path=None):
     ydl_opts = {
-        "format": "bestaudio",
+        "format": "bestaudio/best",
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -139,21 +219,31 @@ def download_youtube_audio(url, cookie_path=None):
                 "preferredquality": "192",
             }
         ],
-        "outtmpl": "library/yt_download.%(ext)s",
+        "outtmpl": "library/%(title)s.%(ext)s",
         "nocheckcertificate": True,
+        "quiet": True,
+        "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["mweb", "android", "web"],
+            }
+        },
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         ),
     }
-    if cookie_path:
+
+    if cookie_path and os.path.exists(cookie_path):
         ydl_opts["cookiefile"] = cookie_path
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return "library/yt_download.wav"
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            return os.path.splitext(filename)[0] + ".wav"
     except Exception as e:
-        st.error(f"YouTube Download Failed: {e}")
+        st.error(f"YouTube Download Error: {e}")
         return None
 
 
@@ -174,18 +264,25 @@ def calculate_rms(data):
     return np.sqrt(np.mean(data**2))
 
 
-def calculate_audio_metrics(data):
+def calculate_audio_metrics(
+    data, lowcut=None, highcut=None, filter_type="raw"
+):
     peak = np.max(np.abs(data))
     rms = calculate_rms(data)
 
     peak_db = 20 * np.log10(peak) if peak > 0 else -100.0
     rms_db = 20 * np.log10(rms) if rms > 0 else -100.0
     crest_factor = peak_db - rms_db if (peak > 0 and rms > 0) else 0.0
+    purity = calculate_purity_metric(
+        data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
 
     return {
         "peak_db": round(float(peak_db), 2),
         "rms_db": round(float(rms_db), 2),
         "dr_span_db": round(float(crest_factor), 2),
+        "purity_val": purity["val"],
+        "purity_label": purity["label"],
     }
 
 
@@ -241,14 +338,14 @@ def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
 
 
 @st.cache_data(
-    show_spinner="Processing clean, matched-span VRA audio matrix..."
+    show_spinner="Processing clean, isolated VRA audio matrix..."
 )
 def process_audio_buffer(
     file_path,
     lowcut=None,
     highcut=None,
     filter_type="band",
-    order=4,
+    order=4,  # 4th-order zero-phase gives clean 48 dB/octave attenuation
     trim=0.0,
     compress=True,
     comp_threshold=-22.0,
@@ -281,7 +378,7 @@ def process_audio_buffer(
         if start_sample < len(data):
             data = data[start_sample:]
 
-    # STEP 1: Pre-Filter Compression & Soft-Knee Limiter
+    # STAGE 1: BROADBAND DYNAMICS LEVELING & SOFT LIMITER (Run BEFORE filtering)
     if compress:
         int_data = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
         audio_seg = AudioSegment(
@@ -301,14 +398,14 @@ def process_audio_buffer(
             / 32768.0
         )
 
-    data = apply_soft_knee_limiter(
-        data,
-        target_rms_db=-20.0,
-        max_crest_factor_db=max_crest_factor,
-        distortion_knee=distortion_knee,
-    )
+        data = apply_soft_knee_limiter(
+            data,
+            target_rms_db=-20.0,
+            max_crest_factor_db=max_crest_factor,
+            distortion_knee=distortion_knee,
+        )
 
-    # STEP 2: Zero-Phase Filtering
+    # STAGE 2: BAND-PASS FILTERING (Strips out-of-band energy & scrubs away all limiter harmonics)
     if filter_type != "raw":
         sos = butter_filter_sos(
             lowcut, highcut, fs, filter_type=filter_type, order=order
@@ -333,24 +430,17 @@ def process_audio_buffer(
             noise = sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STEP 3: Narrowband Post-Filter Crest Factor Clamping
-    if compress and filter_type != "raw":
-        filtered_data = apply_soft_knee_limiter(
-            filtered_data,
-            target_rms_db=-20.0,
-            max_crest_factor_db=max_crest_factor,
-            distortion_knee=distortion_knee,
-        )
-
-    # STEP 4: Final Loudness Normalization
+    # STAGE 3: PURE LINEAR EQUAL-LOUDNESS NORMALIZATION (No non-linear saturation)
     final_data = equal_loudness_normalize(filtered_data, target_db=-20.0)
 
     # Compute Metrics
-    metrics = calculate_audio_metrics(final_data)
+    metrics = calculate_audio_metrics(
+        final_data, lowcut=lowcut, highcut=highcut, filter_type=filter_type
+    )
 
     virtual_file = io.BytesIO()
     sf.write(virtual_file, final_data, fs, format="WAV", subtype="PCM_16")
-    return virtual_file.getvalue(), metrics
+    return virtual_file.getvalue(), metrics, final_data
 
 
 def render_audiometer_channel(
@@ -380,15 +470,20 @@ def render_audiometer_channel(
         else "<span>Est. Sound Level: <b>-- dBA</b></span>"
     )
 
+    purity_val = metrics.get("purity_val", 0.0)
+    purity_lbl = metrics.get("purity_label", "THD")
+    purity_color = "#10b981" if purity_val < 5.0 else "#ef4444"
+
     html_code = f"""
     <div class="card">
-        <div style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
+        <div style="font-family: monospace; font-size: 1.1rem; color: #ffffff; font-weight: bold; margin-bottom: 6px; letter-spacing: 0.5px;">{label}</div>
         
-        <!-- Clinical Leveling & Estimated dBA Badge -->
-        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; font-family: monospace; font-size: 0.75rem; color: #38bdf8; display: flex; justify-content: space-around;">
+        <!-- Clinical Leveling, Purity & Estimated dBA Badge -->
+        <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-family: monospace; font-size: 0.72rem; color: #38bdf8; display: flex; justify-content: space-around;">
             <span>Span: <b style="color:#fbbf24;">±{metrics['dr_span_db']:.2f} dB</b></span>
             <span>Peak: <b>{metrics['peak_db']:.2f} dBFS</b></span>
             <span>RMS: <b>{metrics['rms_db']:.2f} dBFS</b></span>
+            <span>{purity_lbl}: <b style="color:{purity_color};">{purity_val:.2f}%</b></span>
         </div>
         
         <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; margin-bottom: 10px; font-family: monospace; font-size: 0.8rem; display: flex; justify-content: center;">
@@ -525,10 +620,6 @@ with tab4:
 
 with tab2:
     st.subheader("🎥 Ad-Hoc YouTube Media Player")
-    st.markdown(
-        "Paste any YouTube video or audio link below to stream directly into"
-        " the clinic room during ad-hoc testing sessions."
-    )
 
     adhoc_yt_url = st.text_input(
         "🔗 YouTube Media URL:",
@@ -539,13 +630,13 @@ with tab2:
     if adhoc_yt_url:
         video_id = extract_youtube_id(adhoc_yt_url)
         if video_id:
-            st.video(f"https://www.youtube.com/watch?v={video_id}")
-            st.success("Media loaded successfully.")
+            left_pad, player_col, right_pad = st.columns([1, 2, 1])
+            with player_col:
+                with st.container(border=True):
+                    st.video(f"https://www.youtube.com/watch?v={video_id}")
+                    st.success("Media loaded successfully.")
         else:
-            st.error(
-                "Invalid YouTube URL format. Please check the link and try"
-                " again."
-            )
+            st.error("Invalid YouTube URL format.")
 
 with tab1:
     with st.container(border=True):
@@ -588,7 +679,6 @@ with tab1:
         )
         noise_gain = st.slider("Noise Floor Gain (NBN)", 0.0, 0.5, 0.0, 0.05)
 
-        # File search & filtering
         all_tracks = sorted(
             [
                 f
@@ -597,10 +687,13 @@ with tab1:
             ]
         )
 
-        search_query = st.text_input(
-            "🔍 Search Library:",
-            placeholder="Type track name...",
-        )
+        lib_col1, lib_col2 = st.columns([1, 1])
+        with lib_col1:
+            search_query = st.text_input(
+                "🔍 Search Library:",
+                placeholder="Type track name and press Enter...",
+            )
+
         if search_query:
             filtered_tracks = [
                 f for f in all_tracks if search_query.lower() in f.lower()
@@ -608,10 +701,21 @@ with tab1:
         else:
             filtered_tracks = all_tracks
 
-        sel = st.selectbox(
-            "Select Signal:",
-            ["-- Select --"] + filtered_tracks,
-        )
+        if len(filtered_tracks) == 1:
+            st.session_state.selected_track = filtered_tracks[0]
+
+        options = ["-- Select --"] + filtered_tracks
+        if st.session_state.selected_track not in options:
+            st.session_state.selected_track = "-- Select --"
+
+        with lib_col2:
+            sel = st.selectbox(
+                "Select Signal:",
+                options,
+                index=options.index(st.session_state.selected_track),
+                key="track_select_box",
+            )
+            st.session_state.selected_track = sel
 
         if sel != "-- Select --":
             active_source = os.path.join(LIBRARY_DIR, sel)
@@ -670,7 +774,6 @@ with tab1:
                 },
             ]
 
-            # Row 1 Render
             cols = st.columns(3)
             row1_items = [
                 m
@@ -681,7 +784,7 @@ with tab1:
             ]
             for i, item in enumerate(row1_items):
                 with cols[i]:
-                    buf_bytes, metrics = process_audio_buffer(
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -705,7 +808,6 @@ with tab1:
                         est_dba=calculated_dba,
                     )
 
-            # --- ANIMATED ACTIVE SIGNAL INDICATOR ---
             st.markdown(
                 f"""
                 <div class='marquee'><span>{sel}</span></div>
@@ -719,12 +821,11 @@ with tab1:
                 unsafe_allow_html=True,
             )
 
-            # Row 2 Render
             cols2 = st.columns(4)
             row2_items = [m for m in manifest if "BPF" in m["label"]]
             for i, item in enumerate(row2_items):
                 with cols2[i]:
-                    buf_bytes, metrics = process_audio_buffer(
+                    buf_bytes, metrics, raw_array = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -747,6 +848,35 @@ with tab1:
                         st.session_state.fft_gain,
                         est_dba=calculated_dba,
                     )
+
+            with st.expander("📈 SIGNAL PURITY & SPECTRAL ANALYSIS INSPECTOR"):
+                spec_channel = st.selectbox(
+                    "Inspect Band Frequency Response:",
+                    [m["label"] for m in manifest],
+                )
+                selected_item = next(
+                    m for m in manifest if m["label"] == spec_channel
+                )
+
+                _, _, band_array = process_audio_buffer(
+                    active_source,
+                    selected_item["low"],
+                    selected_item["high"],
+                    selected_item["type"],
+                    order=st.session_state.filter_order,
+                    trim=trim,
+                    compress=compress_toggle,
+                    comp_threshold=st.session_state.comp_threshold,
+                    comp_ratio=st.session_state.comp_ratio,
+                    max_crest_factor=st.session_state.max_crest_factor,
+                    distortion_knee=st.session_state.distortion_knee,
+                    noise_gain=noise_gain,
+                )
+
+                fig = render_spectrum_plot(
+                    band_array, label=selected_item["label"]
+                )
+                st.pyplot(fig)
 
 with tab3:
     st.subheader("📦 Bulk Export & YouTube Downloader")
@@ -770,7 +900,7 @@ with tab3:
             zip_b = io.BytesIO()
             with zipfile.ZipFile(zip_b, "w") as z:
                 for item in manifest:
-                    buf_bytes, _ = process_audio_buffer(
+                    buf_bytes, _, _ = process_audio_buffer(
                         active_source,
                         item["low"],
                         item["high"],
@@ -790,4 +920,4 @@ with tab3:
                 zip_b.getvalue(),
                 f"{sel}_set.zip",
                 "application/zip",
-            )
+            ) 
