@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 import soundfile as sf
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfiltfilt
 from pydub import AudioSegment
 import io
 import zipfile
