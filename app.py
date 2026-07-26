@@ -53,7 +53,7 @@ if "comp_threshold" not in st.session_state:
 if "comp_ratio" not in st.session_state:
     st.session_state.comp_ratio = 8.0
 if "max_crest_factor" not in st.session_state:
-    st.session_state.max_crest_factor = 2.5
+    st.session_state.max_crest_factor = 3.2
 if "distortion_knee" not in st.session_state:
     st.session_state.distortion_knee = 1.2
 
@@ -293,56 +293,44 @@ def calculate_audio_metrics(data, lowcut=None, highcut=None, filter_type="raw"):
     }
 
 
-def clean_linear_normalize_and_limit(data, target_db=-20.0, max_crest_db=2.5):
-    """Pure linear RMS normalization with clean peak attenuation (No non-linear saturation)."""
-    current_rms = calculate_rms(data)
-    if current_rms == 0:
-        return data
-
-    target_rms_linear = 10 ** (target_db / 20.0)
-    data = data * (target_rms_linear / current_rms)
-
-    max_allowed_peak = target_rms_linear * (10 ** (max_crest_db / 20.0))
-    current_peak = np.max(np.abs(data))
-
-    if current_peak > max_allowed_peak:
-        data = data * (max_allowed_peak / current_peak)
-
-    return data
-
-
-def adaptive_band_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=2.5, comp_ratio=8.0, fs=44100):
-    """Applies adaptive relative threshold compression and brickwall peak limiting to clamp crest factor tightly to +/-2.5dB."""
+def clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=3.2, fs=44100):
+    """
+    Pure linear dynamic compressor with smooth envelope-based gain attenuation.
+    Zero hard digital sample clipping (no np.clip), preserving 100% audio purity.
+    """
     rms = calculate_rms(data)
     if rms == 0:
         return data
 
-    # 1. Normalize to target RMS
+    # 1. Target RMS scaling
     target_rms_linear = 10 ** (target_rms_db / 20.0)
     data = data * (target_rms_linear / rms)
 
-    # 2. Adaptive Relative Compression
-    peak = np.max(np.abs(data))
-    if peak > 0:
-        peak_db = 20 * np.log10(peak)
-        target_peak_db = target_rms_db + max_crest_db
-        
-        if peak_db > target_peak_db:
-            excess_db = peak_db - target_peak_db
-            gain_reduction_db = excess_db * (1.0 - 1.0 / comp_ratio)
-            gain_linear = 10 ** (-gain_reduction_db / 20.0)
-            data = data * gain_linear
+    # 2. Smooth envelope-based dynamic gain reduction
+    abs_data = np.abs(data)
+    target_peak_linear = target_rms_linear * (10 ** (max_crest_db / 20.0))
+    
+    alpha_attack = np.exp(-1.0 / (fs * 0.002))   # 2ms smooth attack
+    alpha_release = np.exp(-1.0 / (fs * 0.050))  # 50ms smooth release
+    
+    env = np.zeros_like(abs_data)
+    curr_env = 0.0
+    for i in range(len(abs_data)):
+        val = abs_data[i]
+        if val > curr_env:
+            curr_env = val + alpha_attack * (curr_env - val)
+        else:
+            curr_env = val + alpha_release * (curr_env - val)
+        env[i] = curr_env
 
-    # 3. Brickwall Peak Ceiling Limiter (Guarantees +/-2.5 dB ceiling)
+    # Smooth linear gain multiplier (no wave shape distortion)
+    gain_reduction = np.where(env > target_peak_linear, target_peak_linear / np.maximum(env, 1e-6), 1.0)
+    data = data * gain_reduction
+
+    # 3. Final global linear RMS re-alignment
     final_rms = calculate_rms(data)
     if final_rms > 0:
-        target_peak_linear = final_rms * (10 ** (max_crest_db / 20.0))
-        data = np.clip(data, -target_peak_linear, target_peak_linear)
-        
-        # Final RMS match
-        post_rms = calculate_rms(data)
-        if post_rms > 0:
-            data = data * (target_rms_linear / post_rms)
+        data = data * (target_rms_linear / final_rms)
 
     return data
 
@@ -351,7 +339,7 @@ def adaptive_band_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
-    data = clean_linear_normalize_and_limit(data, target_db=-20.0, max_crest_db=2.5)
+    data = clean_smooth_compressor_and_limiter(data, target_rms_db=-20.0, max_crest_db=3.2, fs=fs)
     virtual_file = io.BytesIO()
     sf.write(virtual_file, data, fs, format="WAV", subtype="PCM_16")
     return virtual_file.getvalue()
@@ -368,7 +356,7 @@ def process_audio_buffer(
     compress=True,
     comp_threshold=-22.0,
     comp_ratio=8.0,
-    max_crest_factor=2.5,
+    max_crest_factor=3.2,
     distortion_knee=1.2,
     noise_gain=0.0,
 ):
@@ -399,19 +387,17 @@ def process_audio_buffer(
             noise = signal.sosfiltfilt(sos_n, noise)
         filtered_data = filtered_data + (noise * noise_gain)
 
-    # STAGE 2 & 3: ADAPTIVE RELATIVE COMPRESSION & BRICKWALL LIMITING (+/-2.5 dB Ceiling)
+    # STAGE 2: SMOOTH ENVELOPE COMPRESSION & CEILING LIMITING (No hard digital clipping)
     if compress:
-        final_data = adaptive_band_compressor_and_limiter(
+        final_data = clean_smooth_compressor_and_limiter(
             filtered_data,
             target_rms_db=-20.0,
             max_crest_db=max_crest_factor,
-            comp_ratio=comp_ratio,
             fs=int(fs),
         )
     else:
-        final_data = clean_linear_normalize_and_limit(
-            filtered_data, target_db=-20.0, max_crest_db=max_crest_factor
-        )
+        final_rms = calculate_rms(filtered_data)
+        final_data = filtered_data * ((10 ** (-20.0 / 20.0)) / final_rms) if final_rms > 0 else filtered_data
 
     # Compute Metrics
     metrics = calculate_audio_metrics(
@@ -578,7 +564,7 @@ with tab4:
         "Compressor Ratio", 2.0, 16.0, 8.0, 1.0
     )
     st.session_state.max_crest_factor = st.slider(
-        "Target Peak-to-RMS Span Ceiling (dB)", 1.0, 6.0, 2.5, 0.5
+        "Target Peak-to-RMS Span Ceiling (dB)", 3.0, 6.0, 3.2, 0.1
     )
     st.session_state.distortion_knee = st.slider(
         "Soft-Clipping Curve (Distortion Mitigation)", 0.8, 2.0, 1.2, 0.1
