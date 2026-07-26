@@ -1,19 +1,17 @@
 import streamlit as st
 import numpy as np
 import soundfile as sf
-from scipy.signal import butter, sosfilt
-from pydub import AudioSegment
+from pedalboard import Pedalboard, LowpassFilter, HighpassFilter
+from pedalboard.io import AudioFile
 import io
 import zipfile
 import os
 import base64
-from streamlit_local_storage import LocalStorage
 
 # ==============================================================================
 # CONFIGURATION & INITIALIZATION
 # ==============================================================================
 
-# Set wide layout to establish a comprehensive dual-channel audiometer faceplate
 st.set_page_config(
     page_title="Neilio's VRA Toolkit", 
     page_icon="🎧", 
@@ -21,24 +19,16 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Initialize LocalStorage client for persisting user preferences across sessions
-local_storage = LocalStorage()
-
-# Define the library directory constant for file path references
 LIBRARY_DIR = "library"
 
-# Ensure local persistence folder exists for storing library files
 if not os.path.exists(LIBRARY_DIR):
     os.makedirs(LIBRARY_DIR)
 
-# Initialize system memory cache for tracking current loaded session tracks
 if "session_tracks" not in st.session_state:
     st.session_state.session_tracks = {}
 
-# Initialize system memory cache for favorite tracks tracking
-stored_favs = local_storage.getItem("favorites")
 if "favorites" not in st.session_state:
-    st.session_state.favorites = stored_favs if stored_favs else []
+    st.session_state.favorites = []
 
 # ==============================================================================
 # CSS & STYLE INJECTION
@@ -46,19 +36,15 @@ if "favorites" not in st.session_state:
 
 st.markdown("""
     <style>
-        /* Base page grounding mimicking hardware metal casing */
         .stApp { background-color: #0f172a !important; }
         .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
-        /* Audio player styling */
         audio { height: 40px !important; margin-bottom: 12px !important; margin-top: 4px !important; width: 100%; }
-        /* Audiogram ruler styling */
         .audiogram-ruler {
             display: flex; justify-content: space-between; font-family: monospace; font-size: 1rem;
             color: #fbbf24; margin-bottom: 12px; padding: 0 40px; border-bottom: 2px solid #fbbf24;
         }
     </style>
     
-    <!-- Faceplate Main Header -->
     <div style="background: linear-gradient(180deg, #334155 0%, #1e293b 100%); padding: 20px 30px; border-radius: 16px; border: 2px solid #475569; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);">
         <div style="display: flex; align-items: center; gap: 20px;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="45" height="45">
@@ -66,30 +52,22 @@ st.markdown("""
             </svg>
             <div style="text-align: left;">
                 <h1 style="color: #f8fafc; margin: 0; font-family: monospace; font-size: 1.8rem; letter-spacing: 1px; font-weight: 700;">NEILIO'S VRA CLINICAL STIMULI GENERATOR</h1>
-                <div style="color: #94a3b8; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // MASTER ARCHIVE EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
+                <div style="color: #94a3b8; font-size: 0.9rem; font-family: monospace; margin-top: 4px;">MODEL VRA-11 // PEDALBOARD-POWERED EDITION // RMS-CALIBRATED OUTPUT MATRIX</div>
             </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# AUDIO PROCESSING ENGINE
+# AUDIO PROCESSING ENGINE (USING PEDALBOARD)
 # ==============================================================================
-
-def butter_filter_sos(low, high, fs, filter_type='band', order=8):
-    """Calculates Butterworth filter coefficients."""
-    nyq = 0.5 * fs
-    if filter_type == 'low': sos = butter(order, high/nyq, btype='low', output='sos')
-    elif filter_type == 'high': sos = butter(order, low/nyq, btype='high', output='sos')
-    else: sos = butter(order, [low/nyq, high/nyq], btype='band', output='sos')
-    return sos
 
 def calculate_rms(data):
     """Calculates Root Mean Square of audio data."""
     return np.sqrt(np.mean(data**2))
 
 def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
-    """Normalizes audio to target RMS level."""
+    """Normalizes audio to target RMS level safely."""
     current_rms = calculate_rms(data)
     if current_rms == 0: return data
     target_linear = 10 ** (target_db / 20.0)
@@ -101,46 +79,57 @@ def rms_normalize(data, target_db=-20.0, peak_limit=0.95):
     return normalized_data
 
 def generate_calibration_tone(freq=1000, duration=10.0, fs=44100):
-    """Generates a 1kHz calibration sine wave."""
+    """Generates a 1kHz calibration sine wave via NumPy."""
     t = np.linspace(0, duration, int(fs * duration), endpoint=False)
     data = np.sin(2 * np.pi * freq * t).astype(np.float32)
+    data = np.stack([data, data], axis=0) # Make stereo shape (2, N) for Pedalboard compatibility
     data = rms_normalize(data, target_db=-20.0)
     virtual_file = io.BytesIO()
-    sf.write(virtual_file, data, fs, format='WAV')
+    sf.write(virtual_file, data.T, fs, format='WAV')
     virtual_file.seek(0)
     return virtual_file
 
-def process_audio_buffer(file_source, lowcut=None, highcut=None, filter_type='band', order=8, trim=0.0):
-    """Loads, filters, and normalizes audio buffers."""
-    if isinstance(file_source, str):
-        with open(file_source, 'rb') as f: file_bytes = f.read()
-        is_mp3 = file_source.lower().endswith('.mp3')
+def process_audio_buffer(file_path_or_bytes, lowcut=None, highcut=None, filter_type='band', trim=0.0):
+    """Loads, filters via Spotify Pedalboard, and normalizes audio buffers."""
+    if isinstance(file_path_or_bytes, str):
+        target_file = file_path_or_bytes
     else:
-        file_bytes = file_source.read()
-        is_mp3 = file_source.name.lower().endswith('.mp3')
-        file_source.seek(0)
-    
-    if is_mp3:
-        audio = AudioSegment.from_file(io.BytesIO(file_bytes), format="mp3").set_frame_rate(44100).set_channels(1)
-        data = np.array(audio.get_array_of_samples(), dtype=np.float32) / (2**15)
-        fs = 44100
-    else: data, fs = sf.read(io.BytesIO(file_bytes))
+        target_file = io.BytesIO(file_path_or_bytes.read())
+        file_path_or_bytes.seek(0)
+
+    # Read audio and sample rate cleanly using Pedalboard's AudioFile IO
+    with AudioFile(target_file) as f:
+        fs = f.samplerate
+        audio_data = f.read(f.frames) # Shape: (channels, samples)
         
     if trim > 0:
         start_sample = int(trim * fs)
-        if start_sample < len(data): data = data[start_sample:]
-        
+        if start_sample < audio_data.shape[1]: 
+            audio_data = audio_data[:, start_sample:]
+
+    # Construct the Pedalboard filtering chain dynamically
+    plugins = []
+    if filter_type == 'low':
+        plugins.append(LowpassFilter(cutoff_frequency_hz=highcut))
+    elif filter_type == 'high':
+        plugins.append(HighpassFilter(cutoff_frequency_hz=lowcut))
+    elif filter_type == 'band':
+        plugins.append(HighpassFilter(cutoff_frequency_hz=lowcut))
+        plugins.append(LowpassFilter(cutoff_frequency_hz=highcut))
+
+    board = Pedalboard(plugins)
+    
+    # Process audio through Pedalboard (handles multi-channel seamlessly)
     if filter_type != 'raw':
-        sos = butter_filter_sos(lowcut, highcut, fs, filter_type=filter_type, order=order)
-        if len(data.shape) > 1:
-            filtered_data = np.zeros_like(data)
-            for channel in range(data.shape[1]): filtered_data[:, channel] = sosfilt(sos, data[:, channel])
-        else: filtered_data = sosfilt(sos, data)
-    else: filtered_data = data
+        filtered_data = board(audio_data, fs)
+    else:
+        filtered_data = audio_data
 
     normalized_data = rms_normalize(filtered_data, target_db=-20.0)
+    
     virtual_file = io.BytesIO()
-    sf.write(virtual_file, normalized_data, fs, format='WAV')
+    # Pedalboard/Soundfile expects shape (samples, channels) or 1D for mono when writing
+    sf.write(virtual_file, normalized_data.T, fs, format='WAV')
     virtual_file.seek(0)
     return virtual_file
 
@@ -168,7 +157,7 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
             <button onclick="var clickTime = document.getElementById('audio_{element_key}').currentTime; window.parent.sharedVraLoopPoint = Math.max(0, clickTime - {preroll_offset}); this.innerHTML='⚙️ MARKED'; setTimeout(()=>{{this.innerHTML='🔴 MARK'}}, 1500);" style="background-color: #f59e0b; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🔴 MARK</button>
             <button onclick="if(window.parent.sharedVraLoopPoint !== undefined) {{ var a = document.getElementById('audio_{element_key}'); a.currentTime = window.parent.sharedVraLoopPoint; a.play(); }}" style="background-color: #38bdf8; color: #0f172a; border: none; padding: 25px 5px; border-radius: 16px; font-family: monospace; font-size: 1rem; cursor: pointer; font-weight: bold;">🐇 JUMP</button>
         </div>
-
+        
         <script>
             (function() {{
                 const audio = document.getElementById('audio_{element_key}');
@@ -182,14 +171,12 @@ def render_audiometer_channel(label, audio_buffer, element_key, preroll_offset):
                         source = audioCtx.createMediaElementSource(audio);
                         source.connect(analyser);
                         analyser.connect(audioCtx.destination);
-                        analyser.fftSize = 2048; // Full spectrum resolution
+                        analyser.fftSize = 2048;
                         dataArray = new Uint8Array(analyser.frequencyBinCount);
                     }}
                     function update() {{
                         if (!audio.paused) {{
                             analyser.getByteFrequencyData(dataArray);
-                            // Linearly map the low-end of the spectrum (0-8kHz) across the 32 bars
-                            // This provides a consistent, representative view for all filter types
                             for (let i = 0; i < 32; i++) {{
                                 const val = (dataArray[i * 4] || 0) / 255.0;
                                 const bar = bars[i];
@@ -225,12 +212,10 @@ with st.container(border=True):
 
     all_tracks = [f for f in os.listdir(LIBRARY_DIR) if f.lower().endswith(('.mp3', '.wav'))] + list(st.session_state.session_tracks.keys())
     
-    # SEARCHABLE LIBRARY
     search = st.text_input("🔍 Search Library (Filter by name):", placeholder="Start typing to filter tracks...")
     filtered = [t for t in all_tracks if search.lower() in t.lower()]
     sel = st.selectbox("Library Selection:", ["-- Select Track from Bank --"] + filtered)
     
-    # FAVORITES DECK
     if st.session_state.favorites:
         st.markdown("<div style='font-family: monospace; font-size: 0.9rem; color: #fbbf24; margin-bottom: 4px;'>⭐ [FAVORITES SPEED-DIAL DECK]</div>", unsafe_allow_html=True)
         fav_cols = st.columns(max(len(st.session_state.favorites), 1))
@@ -241,13 +226,11 @@ with st.container(border=True):
                     st.rerun()
 
     if sel != "-- Select Track from Bank --":
-        # ACTIVE SIGNAL MONITOR
         st.markdown(f"<div style='background: #0f172a; border: 2px solid #38bdf8; border-radius: 12px; padding: 20px; text-align: center; color: #38bdf8; font-family: monospace; font-size: 1.3rem; margin: 15px 0;'>ACTIVE SIGNAL: {sel}</div>", unsafe_allow_html=True)
         
         if st.button("⭐ Toggle Favorite"):
             if sel in st.session_state.favorites: st.session_state.favorites.remove(sel)
             else: st.session_state.favorites.append(sel)
-            local_storage.setItem("favorites", st.session_state.favorites)
             st.rerun()
 
         c1, c2 = st.columns(2)
@@ -288,5 +271,4 @@ with st.container(border=True):
                         z.writestr(f"{sel}_{item['suffix']}.wav", buf.getvalue())
                 st.download_button("Click to Save Archive", zip_b.getvalue(), f"{sel}_set.zip", "application/zip")
 
-# Maintain structural line padding
 for _ in range(55): st.write("\n")
